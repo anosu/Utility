@@ -24,18 +24,24 @@ namespace Utility.Toast
 
         #region Singleton
 
+        // IL2CPP AOT 运行时裁剪了 GameObject.AddComponent 的泛型和非泛型重载，
+        // 因此不能在此库内部调用 AddComponent。请由宿主插件通过框架自带方法注入：
+        //
+        //   BepInEx:     ToastUI.Instance = AddComponent<ToastUI>();
+        //   MelonLoader: ToastUI.Instance = ...   // 类似
+        //
+        // Awake() 也会自动注册，因此以上赋值可省略。
+
         private static ToastUI _instance;
+
         public static ToastUI Instance
         {
-            get
+            get => _instance;
+            set
             {
-                if (_instance == null)
-                {
-                    var go = new GameObject("__ToastUI__");
-                    DontDestroyOnLoad(go);
-                    _instance = go.AddComponent<ToastUI>();
-                }
-                return _instance;
+                if (_instance != null && _instance != value)
+                    Destroy(_instance.gameObject);
+                _instance = value;
             }
         }
 
@@ -50,10 +56,6 @@ namespace Utility.Toast
 
         private ToastStyle _style;
         private GUIStyle _titleStyle, _textStyle;
-        private Texture2D _bgTex;
-        private GUIStyle _boxStyle;
-
-        private bool IsBottom => (int)_style.Anchor >= 3;
 
         #endregion
 
@@ -61,7 +63,7 @@ namespace Utility.Toast
 
         private void Awake()
         {
-            if (_instance != null && _instance != this)
+            if (_instance != null)
             {
                 Destroy(gameObject);
                 return;
@@ -93,10 +95,20 @@ namespace Utility.Toast
 
             EnsureStyles();
 
+            // 每帧新建纹理和样式（IL2CPP AOT 兼容 — 缓存纹理会跨帧失效）
+            var bgTex = CreateRoundTex();
+            var boxStyle = new GUIStyle
+            {
+                normal = { background = bgTex },
+                padding = new RectOffset(0, 0, 0, 0),
+                margin  = new RectOffset(0, 0, 0, 0),
+                border  = new RectOffset(RADIUS, RADIUS, RADIUS, RADIUS)
+            };
+
             float textW = _style.Width - _style.Bar - 24;
             float x = CalcX();
 
-            // 第一趟：计算高度与总高
+            // 一趟：计算高度 + 总高
             var heights = new float[count];
             float totalH = 0f;
             for (int i = 0; i < count; i++)
@@ -107,8 +119,13 @@ namespace Utility.Toast
                 totalH += h + _style.Gap;
             }
 
-            // 第二趟：渲染
-            float y = IsBottom ? Screen.height - _style.Margin - totalH + _style.Gap : _style.Margin;
+            // 二趟：渲染
+            float y = _style.Anchor switch
+            {
+                Anchor.BottomLeft or Anchor.BottomRight or Anchor.BottomCenter
+                    => Screen.height - _style.Margin - totalH + _style.Gap,
+                _ => _style.Margin
+            };
 
             for (int i = 0; i < count; i++)
             {
@@ -116,7 +133,7 @@ namespace Utility.Toast
                 float h = heights[i], alpha = d.Alpha;
                 if (alpha <= 0f) { y += h + _style.Gap; continue; }
 
-                DrawCard(d, x, y, h, textW, alpha);
+                DrawCard(d, x, y, h, textW, alpha, boxStyle);
                 y += h + _style.Gap;
             }
         }
@@ -209,30 +226,19 @@ namespace Utility.Toast
 
         private float CalcX()
         {
-            return (int)_style.Anchor % 3 switch
+            switch (_style.Anchor)
             {
-                0 => _style.Margin,
-                1 => (Screen.width - _style.Width) * 0.5f,
-                _ => Screen.width - _style.Width - _style.Margin
-            };
+                case Anchor.TopLeft or Anchor.BottomLeft:
+                    return _style.Margin;
+                case Anchor.TopCenter or Anchor.BottomCenter:
+                    return (Screen.width - _style.Width) * 0.5f;
+                default:
+                    return Screen.width - _style.Width - _style.Margin;
+            }
         }
 
         private void EnsureStyles()
         {
-            if (_bgTex == null)
-                _bgTex = CreateRoundTex();
-
-            if (_boxStyle == null)
-            {
-                _boxStyle = new GUIStyle
-                {
-                    normal = { background = _bgTex },
-                    padding = new RectOffset(0, 0, 0, 0),
-                    margin = new RectOffset(0, 0, 0, 0),
-                    border = new RectOffset(RADIUS, RADIUS, RADIUS, RADIUS)
-                };
-            }
-
             if (_titleStyle != null) return;
 
             _titleStyle = new GUIStyle
@@ -255,19 +261,22 @@ namespace Utility.Toast
             };
         }
 
-        private void DrawCard(ToastData d, float x, float y, float h, float textW, float alpha)
+        private void DrawCard(ToastData d, float x, float y, float h, float textW, float alpha, GUIStyle boxStyle)
         {
             float bar = _style.Bar, cx = x + bar + 12;
+            var old = GUI.color;
 
             // 背景
             var c = _style.BgColor; c.a *= alpha;
             GUI.color = c;
-            GUI.Box(new Rect(x, y, _style.Width, h), "", _boxStyle);
+            GUI.Box(new Rect(x, y, _style.Width, h), "", boxStyle);
 
             // 强调条
             c = _style.Accent(d.Type); c.a *= alpha;
             GUI.color = c;
-            GUI.Box(new Rect(x, y + RADIUS, bar, h - RADIUS * 2f), "", _boxStyle);
+            GUI.Box(new Rect(x, y + RADIUS, bar, h - RADIUS * 2f), "", boxStyle);
+
+            GUI.color = old;
 
             // 标题
             _titleStyle.normal.textColor = new Color(_style.TitleColor.r, _style.TitleColor.g, _style.TitleColor.b, alpha);
@@ -276,8 +285,6 @@ namespace Utility.Toast
             // 消息
             _textStyle.normal.textColor = new Color(_style.TextColor.r, _style.TextColor.g, _style.TextColor.b, alpha);
             GUI.Label(new Rect(cx, y + MSG_Y, textW, h - MSG_Y - PAD_BOT), d.Message, _textStyle);
-
-            GUI.color = Color.white;
         }
 
         private static Texture2D CreateRoundTex()
@@ -289,28 +296,20 @@ namespace Utility.Toast
             {
                 for (int x = 0; x < TEX_SIZE; x++)
                 {
-                    bool corner = false;
+                    bool outside = false;
                     if (x < RADIUS && y < RADIUS)
-                        corner = Dist2(x, y, RADIUS, RADIUS) > r2;
+                        outside = (x - RADIUS) * (x - RADIUS) + (y - RADIUS) * (y - RADIUS) > r2;
                     else if (x > max && y < RADIUS)
-                        corner = Dist2(x, y, max, RADIUS) > r2;
+                        outside = (x - max) * (x - max) + (y - RADIUS) * (y - RADIUS) > r2;
                     else if (x < RADIUS && y > max)
-                        corner = Dist2(x, y, RADIUS, max) > r2;
+                        outside = (x - RADIUS) * (x - RADIUS) + (y - max) * (y - max) > r2;
                     else if (x > max && y > max)
-                        corner = Dist2(x, y, max, max) > r2;
-
-                    tex.SetPixel(x, y, corner ? Color.clear : Color.white);
+                        outside = (x - max) * (x - max) + (y - max) * (y - max) > r2;
+                    tex.SetPixel(x, y, outside ? Color.clear : Color.white);
                 }
             }
-
             tex.Apply();
             return tex;
-        }
-
-        private static int Dist2(int x1, int y1, int x2, int y2)
-        {
-            int dx = x1 - x2, dy = y1 - y2;
-            return dx * dx + dy * dy;
         }
 
         #endregion

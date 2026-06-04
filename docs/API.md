@@ -34,12 +34,27 @@ Utility.dll
 
 ### 1.1 ToastUI（主入口）
 
-`ToastUI` 是一个 **MonoBehaviour 单例**，挂载在 DontDestroyOnLoad 的 GameObject 上。首次访问 `ToastUI.Instance` 时自动创建，无需手动初始化。
+`ToastUI` 是一个 **MonoBehaviour 单例**，挂载在 DontDestroyOnLoad 的 GameObject 上。
+
+> **⚠️ IL2CPP 兼容：** Unity IL2CPP AOT 运行时会裁剪 `GameObject.AddComponent` 方法，因此 ToastUI **不能自行创建**。必须由宿主插件通过框架的 `AddComponent<T>()` 创建，`Awake()` 会自动注册单例。
+
+#### 初始化（必须在使用前调用一次）
+
+```csharp
+// BepInEx — 在 Plugin.Load() 中
+AddComponent<ToastUI>();                          // Awake() 自动注册，后续直接 Instance
+// 或显式赋值
+ToastUI.Instance = AddComponent<ToastUI>();
+
+// MelonLoader — 在 MelonMod.OnInitializeMelon() 中
+// 类似方式，使用 MelonLoader 提供的组件创建方法
+```
 
 #### 获取实例
 
 ```csharp
-ToastUI ui = ToastUI.Instance;
+ToastUI ui = ToastUI.Instance;   // 初始化后即可使用
+if (ui == null) return;          // 未初始化时安全判空
 ```
 
 #### 类型常量（int，IL2CPP 兼容）
@@ -355,6 +370,10 @@ public class MyPlugin : BasePlugin
     {
         Log = base.Log;
 
+        // 必须：创建 ToastUI 组件（任选一种方式）
+        AddComponent<ToastUI>();                         // Awake() 自动注册
+        // 或: ToastUI.Instance = AddComponent<ToastUI>();
+
         // 启动问候
         ToastUI.Instance.Success(NAME, $"v{VERSION} 加载成功");
 
@@ -365,7 +384,7 @@ public class MyPlugin : BasePlugin
 
     public override bool Unload()
     {
-        ToastUI.Instance.Clear();
+        ToastUI.Instance?.Clear();
         PowerShellToast.Stop();
         return base.Unload();
     }
@@ -442,8 +461,9 @@ ToastUI.Instance.Clear();
 
 ### IL2CPP 兼容性
 
-- 所有公开 API 的参数使用基础类型（`string`、`int`、`float`），避免 IL2CPP 泛型/枚举互操作问题
-- 内部枚举 `ToastType` 和 `Anchor` 仅作内部使用，对外暴露 int 常量和转换逻辑
+- 所有公开 API 的参数使用基础类型（`string`、`int`、`float`），避免 IL2CPP 泛型互操作问题
+- 内部枚举 `ToastType` 和 `Anchor` 仅作内部使用，对外暴露 int 常量
+- **`AddComponent` 已从 `Instance` getter 中移除**，因为 Unity IL2CPP AOT 会裁剪运行时未使用的方法。必须由宿主插件通过其框架的 `AddComponent<T>()` 创建 ToastUI（BepInEx 的 `BasePlugin.AddComponent<T>()` 内部有 IL2CPP 安全适配）
 
 ### 性能特征
 

@@ -19,9 +19,4 @@
     </Reference>
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Remove="res\**" />
-    <None Remove="res\**" />
-  </ItemGroup>
-
 </Project>

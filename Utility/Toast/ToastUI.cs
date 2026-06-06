@@ -3,11 +3,7 @@ using UnityEngine;
 
 namespace Utility.Toast
 {
-    // 公开 API 使用 int 常量代替枚举，避免 IL2CPP 互操作问题
-    // type: 0=Info 1=Success 2=Warning 3=Error
-    // anchor: 0=TL 1=TC 2=TR 3=BL 4=BC 5=BR
-
-    /// <summary>Unity OnGUI Toast 管理器（MonoBehaviour 单例）</summary>
+    /// <summary>Unity OnGUI Toast 管理器（MonoBehaviour 单例，针对 IL2CPP 优化）</summary>
     public class ToastUI : MonoBehaviour
     {
         #region Constants
@@ -23,14 +19,6 @@ namespace Utility.Toast
         #endregion
 
         #region Singleton
-
-        // IL2CPP AOT 运行时裁剪了 GameObject.AddComponent 的泛型和非泛型重载，
-        // 因此不能在此库内部调用 AddComponent。请由宿主插件通过框架自带方法注入：
-        //
-        //   BepInEx:     ToastUI.Instance = AddComponent<ToastUI>();
-        //   MelonLoader: ToastUI.Instance = ...   // 类似
-        //
-        // Awake() 也会自动注册，因此以上赋值可省略。
 
         private static ToastUI _instance;
 
@@ -53,9 +41,13 @@ namespace Utility.Toast
         private readonly List<ToastData> _active = new();
         private readonly object _lock = new();
         private readonly GUIContent _gc = new();
+        
+        // 缓存数组，避免 OnGUI 中频繁 new float[]
+        private readonly float[] _heightsCache = new float[MAX_QUEUE]; 
 
         private ToastStyle _style;
-        private GUIStyle _titleStyle, _textStyle;
+        private GUIStyle _titleStyle, _textStyle, _boxStyle;
+        private Texture2D _bgTex;
 
         #endregion
 
@@ -71,12 +63,12 @@ namespace Utility.Toast
             _instance = this;
             DontDestroyOnLoad(gameObject);
             _style = new ToastStyle();
+
+            Toast.OnUIReady();
         }
 
         private void Update()
         {
-            FlushQueue();
-
             float dt = Time.deltaTime;
             for (int i = _active.Count - 1; i >= 0; i--)
             {
@@ -85,7 +77,14 @@ namespace Utility.Toast
                 if (d.Expired) _active.RemoveAt(i);
             }
 
-            FlushQueue();
+            // 将入队逻辑严格限制在主线程处理，避免后台线程调用 Show() 引发集合异常
+            lock (_lock)
+            {
+                while (_queue.Count > 0 && _active.Count < _style.Max)
+                {
+                    _active.Add(_queue.Dequeue());
+                }
+            }
         }
 
         private void OnGUI()
@@ -95,27 +94,16 @@ namespace Utility.Toast
 
             EnsureStyles();
 
-            // 每帧新建纹理和样式（IL2CPP AOT 兼容 — 缓存纹理会跨帧失效）
-            var bgTex = CreateRoundTex();
-            var boxStyle = new GUIStyle
-            {
-                normal = { background = bgTex },
-                padding = new RectOffset(0, 0, 0, 0),
-                margin  = new RectOffset(0, 0, 0, 0),
-                border  = new RectOffset(RADIUS, RADIUS, RADIUS, RADIUS)
-            };
-
             float textW = _style.Width - _style.Bar - 24;
             float x = CalcX();
 
-            // 一趟：计算高度 + 总高
-            var heights = new float[count];
+            // 一趟：计算高度 + 总高 (使用缓存数组替代 new float[])
             float totalH = 0f;
             for (int i = 0; i < count; i++)
             {
                 _gc.text = _active[i].Message;
                 float h = Mathf.Max(PAD_TOP + _textStyle.CalcHeight(_gc, textW) + PAD_BOT, _style.MaxHeight);
-                heights[i] = h;
+                _heightsCache[i] = h;
                 totalH += h + _style.Gap;
             }
 
@@ -130,10 +118,10 @@ namespace Utility.Toast
             for (int i = 0; i < count; i++)
             {
                 var d = _active[i];
-                float h = heights[i], alpha = d.Alpha;
+                float h = _heightsCache[i], alpha = d.Alpha;
                 if (alpha <= 0f) { y += h + _style.Gap; continue; }
 
-                DrawCard(d, x, y, h, textW, alpha, boxStyle);
+                DrawCard(d, x, y, h, textW, alpha, _boxStyle);
                 y += h + _style.Gap;
             }
         }
@@ -142,13 +130,16 @@ namespace Utility.Toast
         {
             if (_instance == this)
                 _instance = null;
+            
+            // 清理非托管资源
+            if (_bgTex != null && _bgTex)
+                Destroy(_bgTex);
         }
 
         #endregion
 
         #region Public API
 
-        /// <summary>显示 Toast。type: 0=Info 1=Success 2=Warning 3=Error</summary>
         public void Show(string title, string message, int type = 0, float duration = 3f)
         {
             var t = type switch
@@ -160,13 +151,12 @@ namespace Utility.Toast
             };
 
             var data = new ToastData(title, message, t, duration);
+            
+            // 异步安全：只负责推入队列
             lock (_lock)
             {
-                if (_queue.Count > MAX_QUEUE) return;
-                if (_active.Count < _style.Max)
-                    _active.Add(data);
-                else
-                    _queue.Enqueue(data);
+                if (_queue.Count + _active.Count >= MAX_QUEUE) return;
+                _queue.Enqueue(data);
             }
         }
 
@@ -182,7 +172,6 @@ namespace Utility.Toast
         public void Error(string title, string message, float duration = 5f)
             => Show(title, message, TYPE_ERROR, duration);
 
-        /// <summary>配置样式。anchor: 0=TL 1=TC 2=TR 3=BL 4=BC 5=BR</summary>
         public void Config(
             float? width = null, float? maxHeight = null,
             float? margin = null, float? gap = null,
@@ -215,15 +204,6 @@ namespace Utility.Toast
 
         #region Private Helpers
 
-        private void FlushQueue()
-        {
-            lock (_lock)
-            {
-                while (_queue.Count > 0 && _active.Count < _style.Max)
-                    _active.Add(_queue.Dequeue());
-            }
-        }
-
         private float CalcX()
         {
             switch (_style.Anchor)
@@ -239,6 +219,22 @@ namespace Utility.Toast
 
         private void EnsureStyles()
         {
+            // IL2CPP 安全检测：利用重载的 ! 运算符检查底层 C++ 对象是否存活
+            if (_bgTex == null || !_bgTex)
+            {
+                _bgTex = CreateRoundTex();
+                // 核心修复：防止被 Unity 在场景切换或内部清理时意外 GC
+                _bgTex.hideFlags = HideFlags.HideAndDontSave;
+
+                _boxStyle = new GUIStyle
+                {
+                    normal = { background = _bgTex },
+                    padding = new RectOffset(0, 0, 0, 0),
+                    margin = new RectOffset(0, 0, 0, 0),
+                    border = new RectOffset(RADIUS, RADIUS, RADIUS, RADIUS)
+                };
+            }
+
             if (_titleStyle != null) return;
 
             _titleStyle = new GUIStyle
@@ -269,12 +265,12 @@ namespace Utility.Toast
             // 背景
             var c = _style.BgColor; c.a *= alpha;
             GUI.color = c;
-            GUI.Box(new Rect(x, y, _style.Width, h), "", boxStyle);
+            GUI.Box(new Rect(x, y, _style.Width, h), GUIContent.none, boxStyle);
 
             // 强调条
             c = _style.Accent(d.Type); c.a *= alpha;
             GUI.color = c;
-            GUI.Box(new Rect(x, y + RADIUS, bar, h - RADIUS * 2f), "", boxStyle);
+            GUI.Box(new Rect(x, y + RADIUS, bar, h - RADIUS * 2f), GUIContent.none, boxStyle);
 
             GUI.color = old;
 

@@ -265,12 +265,12 @@ namespace Utility.Toast
             // 背景
             var c = _style.BgColor; c.a *= alpha;
             GUI.color = c;
-            GUI.Box(new Rect(x, y, _style.Width, h), GUIContent.none, boxStyle);
+            GUI.Box(new Rect(x, y, _style.Width, h), "", boxStyle);
 
             // 强调条
             c = _style.Accent(d.Type); c.a *= alpha;
             GUI.color = c;
-            GUI.Box(new Rect(x, y + RADIUS, bar, h - RADIUS * 2f), GUIContent.none, boxStyle);
+            GUI.Box(new Rect(x, y + RADIUS, bar, h - RADIUS * 2f), "", boxStyle);
 
             GUI.color = old;
 

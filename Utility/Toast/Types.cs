@@ -1,7 +1,9 @@
+using System;
 using UnityEngine;
 
 namespace Utility.Toast
 {
+    /// <summary>Specifies the semantic kind of a notification.</summary>
     public enum ToastType
     {
         Info,
@@ -10,7 +12,7 @@ namespace Utility.Toast
         Error,
     }
 
-    /// <summary>锚点位置</summary>
+    /// <summary>Specifies a screen anchor for notifications.</summary>
     public enum Anchor
     {
         TopLeft,
@@ -21,52 +23,68 @@ namespace Utility.Toast
         BottomRight,
     }
 
-    /// <summary>单条 Toast 数据</summary>
-    public class ToastData
+    /// <summary>Represents the mutable lifetime state of one notification.</summary>
+    public sealed class ToastData
     {
-        public string Title,
-            Message;
-        public ToastType Type;
-        public float Duration,
-            Remaining;
-
+        /// <summary>Initializes a new instance of the <see cref="ToastData"/> class.</summary>
         public ToastData(string title, string message, ToastType type, float duration)
         {
             Title = title;
             Message = message;
             Type = type;
-            Duration = Mathf.Max(duration, 1f);
+            Duration = float.IsFinite(duration) ? Math.Max(duration, 1f) : 3f;
             Remaining = Duration;
         }
 
+        /// <summary>Gets the notification title.</summary>
+        public string Title { get; }
+
+        /// <summary>Gets the notification body.</summary>
+        public string Message { get; }
+
+        /// <summary>Gets the semantic notification type.</summary>
+        public ToastType Type { get; }
+
+        /// <summary>Gets the total display duration in seconds.</summary>
+        public float Duration { get; }
+
+        /// <summary>Gets or sets the remaining display time in seconds.</summary>
+        public float Remaining { get; internal set; }
+
+        internal string? CompatibilityMessage { get; set; }
+        internal int CompatibilityCharacters { get; set; }
+        internal int CompatibilityLineCount { get; set; }
+
+        /// <summary>Gets a value that indicates whether the notification has expired.</summary>
         public bool Expired => Remaining <= 0f;
 
+        /// <summary>Gets the current fade opacity.</summary>
         public float Alpha
         {
             get
             {
-                const float In = 0.3f,
-                    Out = 0.5f;
-                if (Remaining > Duration - In)
-                    return (Duration - Remaining) / In;
-                if (Remaining < Out)
-                    return Mathf.Max(0, Remaining / Out);
+                const float FadeIn = 0.3f;
+                const float FadeOut = 0.5f;
+
+                if (Remaining > Duration - FadeIn)
+                    return (Duration - Remaining) / FadeIn;
+                if (Remaining < FadeOut)
+                    return Math.Max(0f, Remaining / FadeOut);
                 return 1f;
             }
         }
     }
 
-    /// <summary>Toast 样式配置（简约暗色风格）</summary>
-    public class ToastStyle
+    /// <summary>Stores the visual configuration used by the IMGUI renderer.</summary>
+    public sealed class ToastStyle
     {
-        public float Width = 425f,
-            MaxHeight = 105f,
-            Margin = 20f,
-            Gap = 15f,
-            Bar = 6f;
-        public int TitleSize = 19,
-            TextSize = 16,
-            Max = 5;
+        public float Width = 425f;
+        public float MaxHeight = 105f;
+        public float Margin = 20f;
+        public float Gap = 15f;
+        public int TitleSize = 19;
+        public int TextSize = 16;
+        public int Max = 5;
 
         public Color BgColor = new(0.06f, 0.06f, 0.08f, 0.94f);
         public Color TitleColor = new(0.95f, 0.95f, 0.97f);
@@ -78,13 +96,41 @@ namespace Utility.Toast
 
         public Anchor Anchor = Anchor.BottomRight;
 
-        public Color Accent(ToastType t) =>
-            t switch
+        internal int Version { get; private set; }
+
+        /// <summary>Gets the accent color associated with a notification type.</summary>
+        public Color Accent(ToastType type) =>
+            type switch
             {
                 ToastType.Success => SuccessColor,
                 ToastType.Warning => WarnColor,
                 ToastType.Error => ErrorColor,
                 _ => InfoColor,
             };
+
+        internal void Apply(ToastConfiguration configuration)
+        {
+            if (configuration.Width.HasValue)
+                Width = ClampFinite(configuration.Width.Value, 120f, Width);
+            if (configuration.MaxHeight.HasValue)
+                MaxHeight = ClampFinite(configuration.MaxHeight.Value, 48f, MaxHeight);
+            if (configuration.Margin.HasValue)
+                Margin = ClampFinite(configuration.Margin.Value, 0f, Margin);
+            if (configuration.Gap.HasValue)
+                Gap = ClampFinite(configuration.Gap.Value, 0f, Gap);
+            if (configuration.Max.HasValue)
+                Max = Math.Clamp(configuration.Max.Value, 0, ToastRuntime.Capacity);
+            if (configuration.TitleSize.HasValue)
+                TitleSize = Math.Clamp(configuration.TitleSize.Value, 8, 72);
+            if (configuration.TextSize.HasValue)
+                TextSize = Math.Clamp(configuration.TextSize.Value, 8, 72);
+            if (configuration.Anchor.HasValue)
+                Anchor = (Anchor)Math.Clamp(configuration.Anchor.Value, 0, 5);
+
+            Version++;
+        }
+
+        private static float ClampFinite(float value, float minimum, float fallback) =>
+            float.IsFinite(value) ? Math.Max(minimum, value) : fallback;
     }
 }

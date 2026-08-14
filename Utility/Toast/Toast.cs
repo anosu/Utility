@@ -1,57 +1,128 @@
-using System.Collections.Generic;
+using System;
+using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.Injection;
+using UnityEngine;
+using UnityObject = UnityEngine.Object;
 
 namespace Utility.Toast
 {
+    /// <summary>Provides the loader-neutral entry point for the toast system.</summary>
     public static class Toast
     {
-        private struct PendingMsg
-        {
-            public string Title,
-                Msg;
-            public int Type;
-            public float Dur;
-        }
+        private const string DefaultObjectName = "Utility.Toast";
 
-        private static readonly Queue<PendingMsg> _pendingQueue = new();
+        /// <summary>Gets a value that indicates whether the Unity behaviour is initialized.</summary>
+        public static bool IsInitialized => !ReferenceEquals(ToastUI.Instance, null);
 
-        // 提供给 ToastUI.Awake() 调用的内部方法
-        internal static void OnUIReady()
+        /// <summary>Gets the last exception that disabled or degraded the toast renderer.</summary>
+        public static Exception? LastRenderError => ToastRuntime.Shared.LastRenderError;
+
+        /// <summary>Gets the number of active, waiting, and pending notifications.</summary>
+        public static int Count => ToastRuntime.Shared.Count;
+
+        /// <summary>Registers and creates the IL2CPP behaviour used by both BepInEx and MelonLoader.</summary>
+        /// <param name="gameObjectName">The name assigned to the dedicated persistent GameObject.</param>
+        /// <returns>The initialized behaviour.</returns>
+        /// <remarks>This method must be called from Unity's main thread.</remarks>
+        public static ToastUI Initialize(string gameObjectName = DefaultObjectName)
         {
-            while (_pendingQueue.Count > 0)
+            if (IsInitialized)
+                return ToastUI.Instance!;
+
+            if (!ClassInjector.IsTypeRegisteredInIl2Cpp<ToastUI>())
+                ClassInjector.RegisterTypeInIl2Cpp<ToastUI>();
+
+            var host = new GameObject(
+                string.IsNullOrWhiteSpace(gameObjectName) ? DefaultObjectName : gameObjectName
+            )
             {
-                var p = _pendingQueue.Dequeue();
-                ToastUI.Instance.Show(p.Title, p.Msg, p.Type, p.Dur);
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            UnityObject.DontDestroyOnLoad(host);
+
+            try
+            {
+                var component = host.AddComponent(Il2CppType.Of<ToastUI>())?.TryCast<ToastUI>();
+                if (ReferenceEquals(component, null))
+                    throw new InvalidOperationException(
+                        "Unity did not create the ToastUI component."
+                    );
+
+                return component;
+            }
+            catch
+            {
+                UnityObject.Destroy(host);
+                throw;
             }
         }
 
-        public static void Show(string title, string message, int type = 0, float duration = 3f)
+        /// <summary>Destroys the toast host and clears all queued notifications.</summary>
+        /// <remarks>This method must be called from Unity's main thread.</remarks>
+        public static void Shutdown()
         {
-            if (ToastUI.Instance != null)
-                ToastUI.Instance.Show(title, message, type, duration);
-            else
-                _pendingQueue.Enqueue(
-                    new PendingMsg
-                    {
-                        Title = title,
-                        Msg = message,
-                        Type = type,
-                        Dur = duration,
-                    }
-                );
+            ToastRuntime.Shared.Reset();
+
+            var instance = ToastUI.Instance;
+            if (!ReferenceEquals(instance, null))
+                UnityObject.Destroy(instance.gameObject);
         }
 
-        public static void Info(string title, string message, float duration = 3f) =>
+        /// <summary>Queues a notification for display.</summary>
+        /// <param name="title">The notification title.</param>
+        /// <param name="message">The notification body.</param>
+        /// <param name="type">The numeric notification type.</param>
+        /// <param name="duration">The display duration in seconds.</param>
+        /// <returns><see langword="true"/> if the notification was accepted; otherwise, <see langword="false"/>.</returns>
+        public static bool Show(string title, string message, int type = 0, float duration = 3f) =>
+            ToastRuntime.Shared.EnqueueShow(
+                title ?? string.Empty,
+                message ?? string.Empty,
+                type,
+                duration
+            );
+
+        /// <summary>Queues an informational notification.</summary>
+        public static bool Info(string title, string message, float duration = 3f) =>
             Show(title, message, ToastUI.TYPE_INFO, duration);
 
-        public static void Success(string title, string message, float duration = 3f) =>
+        /// <summary>Queues a success notification.</summary>
+        public static bool Success(string title, string message, float duration = 3f) =>
             Show(title, message, ToastUI.TYPE_SUCCESS, duration);
 
-        public static void Warn(string title, string message, float duration = 4f) =>
+        /// <summary>Queues a warning notification.</summary>
+        public static bool Warn(string title, string message, float duration = 4f) =>
             Show(title, message, ToastUI.TYPE_WARN, duration);
 
-        public static void Error(string title, string message, float duration = 5f) =>
+        /// <summary>Queues an error notification.</summary>
+        public static bool Error(string title, string message, float duration = 5f) =>
             Show(title, message, ToastUI.TYPE_ERROR, duration);
 
-        public static void Clear() => ToastUI.Instance?.Clear();
+        /// <summary>Queues a partial style update for the Unity main thread.</summary>
+        public static void Configure(
+            float? width = null,
+            float? maxHeight = null,
+            float? margin = null,
+            float? gap = null,
+            int? max = null,
+            int? titleSize = null,
+            int? textSize = null,
+            int? anchor = null
+        ) =>
+            ToastRuntime.Shared.EnqueueConfigure(
+                new ToastConfiguration(
+                    width,
+                    maxHeight,
+                    margin,
+                    gap,
+                    max,
+                    titleSize,
+                    textSize,
+                    anchor
+                )
+            );
+
+        /// <summary>Queues removal of all active and waiting notifications.</summary>
+        public static void Clear() => ToastRuntime.Shared.EnqueueClear();
     }
 }

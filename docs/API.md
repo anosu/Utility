@@ -5,7 +5,7 @@
 | 属性 | 值 |
 |---|---|
 | 程序集 | `Utility` |
-| 目标框架 | `netstandard2.1` |
+| 目标框架 | `net6.0` |
 | C# 版本 | 10.0 |
 | 依赖 | `UnityEngine.dll`（运行时由 BepInEx / MelonLoader 提供） |
 | 输出 | 类库 DLL，供 BepInEx 6 IL2CPP / MelonLoader 模组引用 |

@@ -28,7 +28,8 @@ namespace Utility.Legacy
 
             try
             {
-                string script = $@"
+                string script =
+                    $@"
 $mgr = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
 $tpl = $mgr::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
 $nf = $mgr::CreateToastNotifier('{appName}')
@@ -55,7 +56,7 @@ while ($true) {{
                     CreateNoWindow = true,
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
-                    RedirectStandardError = true
+                    RedirectStandardError = true,
                 };
 
                 _ps = new Process { StartInfo = psi };
@@ -79,14 +80,23 @@ while ($true) {{
         /// <summary>显示 Windows 原生 Toast</summary>
         public static void Show(string title, string message, int duration = 3)
         {
-            if (_ps == null || _ps.HasExited) return;
+            if (_ps == null || _ps.HasExited)
+                return;
 
             try
             {
-                string json = $"{{\"T\":\"{Esc(title)}\",\"M\":\"{Esc(message)}\",\"E\":{duration}}}";
-                lock (_lock) { _ps.StandardInput.WriteLine(json); _ps.StandardInput.Flush(); }
+                string json =
+                    $"{{\"T\":\"{Esc(title)}\",\"M\":\"{Esc(message)}\",\"E\":{duration}}}";
+                lock (_lock)
+                {
+                    _ps.StandardInput.WriteLine(json);
+                    _ps.StandardInput.Flush();
+                }
             }
-            catch (Exception e) { _log?.Invoke(e.Message); }
+            catch (Exception e)
+            {
+                _log?.Invoke(e.Message);
+            }
         }
 
         /// <summary>停止并清理 PowerShell 进程</summary>
@@ -102,15 +112,14 @@ while ($true) {{
                 }
                 _ps = null;
             }
-            catch { /* 忽略清理异常 */ }
+            catch
+            { /* 忽略清理异常 */
+            }
         }
 
         private static string Esc(string s)
         {
-            return s.Replace("\"", "\"\"")
-                    .Replace("&", "&")
-                    .Replace("<", "<")
-                    .Replace(">", ">");
+            return s.Replace("\"", "\"\"").Replace("&", "&").Replace("<", "<").Replace(">", ">");
         }
     }
 }

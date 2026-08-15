@@ -176,7 +176,7 @@ namespace Utility.Fonts
             {
                 try
                 {
-                    return TryCast(bundle.LoadAsset(_assetName));
+                    return TryCast(bundle.LoadAsset(_assetName, Il2CppType.Of<UnityObject>()));
                 }
                 catch (Exception exception)
                 {
@@ -202,7 +202,7 @@ namespace Utility.Fonts
             {
                 return _assetName == null
                     ? bundle.LoadAllAssetsAsync(Il2CppType.Of<UnityObject>())
-                    : bundle.LoadAssetAsync(_assetName);
+                    : bundle.LoadAssetAsync(_assetName, Il2CppType.Of<UnityObject>());
             }
             catch (Exception exception)
             {

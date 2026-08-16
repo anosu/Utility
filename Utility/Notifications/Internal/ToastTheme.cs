@@ -11,7 +11,7 @@ namespace Utility.Notifications.Internal
         internal float Gap = 15f;
         internal int TitleSize = 19;
         internal int TextSize = 16;
-        internal int MaximumVisible = 5;
+        internal int MaximumVisible = 4;
 
         internal Color BackgroundColor = new(0.06f, 0.06f, 0.08f, 0.94f);
         internal Color TitleColor = new(0.95f, 0.95f, 0.97f);

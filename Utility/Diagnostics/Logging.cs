@@ -50,6 +50,8 @@ namespace Utility.Diagnostics
     /// <summary>Provides loader-neutral diagnostic forwarding for Utility.</summary>
     public static class Logging
     {
+        private const int MaximumSummaryLength = 240;
+
         private static SinkRegistration? _registration;
 
         /// <summary>Gets a value indicating whether a host log sink is configured.</summary>
@@ -95,6 +97,29 @@ namespace Utility.Diagnostics
             {
                 Interlocked.Exchange(ref registration.LastError, sinkError);
             }
+        }
+
+        internal static void WriteRecoverable(
+            LogLevel level,
+            string category,
+            string message,
+            Exception exception
+        ) => Write(level, category, $"{message} ({Summarize(exception)})");
+
+        private static string Summarize(Exception exception)
+        {
+            string message = exception.Message;
+            int lineBreak = message.IndexOfAny(new[] { '\r', '\n' });
+            if (lineBreak >= 0)
+                message = message.Substring(0, lineBreak);
+
+            message = message.Trim();
+            if (message.Length > MaximumSummaryLength)
+                message = message.Substring(0, MaximumSummaryLength - 3) + "...";
+
+            return message.Length == 0
+                ? exception.GetType().Name
+                : $"{exception.GetType().Name}: {message}";
         }
 
         private sealed class SinkRegistration

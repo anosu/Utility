@@ -96,7 +96,7 @@ public override void OnDeinitializeMelon()
 
 ## Notifications
 
-All notification and configuration calls are thread-safe. Unity objects are only mutated from `Update` or `OnGUI` on the main thread. If IMGUI fails and `Utility.Notifications.Ugui.dll` is available, Toast creates a high-order overlay `Canvas` with non-interactive `Image` and legacy `Text` components. No `EventSystem` or raycaster is added, so notifications do not intercept game input.
+All notification and configuration calls are thread-safe. Unity objects are only mutated from `Update` or `OnGUI` on the main thread. Toast respects `Screen.safeArea` and scales its configured dimensions from a 768-pixel-high reference viewport, up to 1.6x on larger render targets. The card-width limit transitions smoothly between square and 4:3 viewports, reaching 34% of the safe-area width at 4:3 and wider, so desktop 1080p receives a readable size increase without allowing a high-DPI mobile card to approach half the screen. Physical DPI can provide a modest text-only increase of up to 1.25x, but never controls card geometry. The title-to-message gap follows 25% of the final title size and is constrained to 5-8 pixels, keeping mobile and desktop proportions consistent. Cards that no longer fit after an orientation or resolution change return to the waiting queue. Each card keeps its natural height while the complete stack fits; taller cards are reduced only when the stack actually exceeds the safe area. The uGUI and compatibility renderers use a managed width estimate that distinguishes narrow text from CJK, full-width, and surrogate-pair characters. If `Screen.safeArea` or `Screen.dpi` is stripped, the layout falls back to the full screen and viewport-based sizing. If IMGUI fails and `Utility.Notifications.Ugui.dll` is available, Toast creates a high-order overlay `Canvas` with non-interactive `Image` and legacy `Text` components. No `EventSystem` or raycaster is added, so notifications do not intercept game input.
 
 ```csharp
 Toast.Info("Info", "Configuration loaded");
@@ -138,11 +138,11 @@ Toast.Configure(
 
 `minimumHeight` is the card's lower height bound; longer wrapped messages can make a card taller.
 
-Setting `maximumVisible` to `0` pauses display without expiring waiting notifications. Set it to a positive value to resume. The injected `ToastBehaviour` is internal; callers only use the static `Toast` interface.
+Setting `maximumVisible` to `0` pauses display without expiring waiting notifications. Set it to a positive value to resume. The default is `4`; the effective value can be lower when the current safe area cannot fit that many minimum-height cards. The injected `ToastBehaviour` is internal; callers only use the static `Toast` interface.
 
 ## Loader logging
 
-`Utility.Diagnostics.Logging` forwards structured diagnostic events without referencing either loader. Install the sink before calling `Toast.Initialize`. Replacing or removing a sink is atomic, and an exception thrown by the sink is retained in `Logging.LastSinkError` rather than crossing a Unity callback.
+`Utility.Diagnostics.Logging` forwards structured diagnostic events without referencing either loader. Install the sink before calling `Toast.Initialize`. Replacing or removing a sink is atomic, and an exception thrown by the sink is retained in `Logging.LastSinkError` rather than crossing a Unity callback. Recoverable failures that lead to another fallback carry only a one-line exception type and message in `LogEntry.Message`; `LogEntry.Exception` is reserved for terminal failures after every available path has failed. Loader adapters can therefore print complete stacks only when the requested feature could not be completed.
 
 BepInEx 6:
 
@@ -199,7 +199,7 @@ Logging.SetSink(entry =>
 });
 ```
 
-Call `Logging.SetSink(null)` when the consuming mod unloads. Utility emits only lifecycle, backend selection, fallback, and terminal asset-loading events; it does not log per frame.
+Call `Logging.SetSink(null)` when the consuming mod unloads. Utility emits only lifecycle, backend selection, fallback, and terminal asset-loading events; it does not log per frame or repeatedly probe a stripped safe-area/DPI method.
 
 ## Prefix-neutral assets
 
@@ -245,7 +245,7 @@ The optional uGUI renderer is loaded through a small internal contract only afte
 
 The IMGUI renderer uses `Texture2D.whiteTexture` rather than creating and populating a texture at runtime. This removes image conversion and per-pixel texture methods from the required surface.
 
-It also avoids `GUIStyleState.background`, custom runtime textures, and `DrawTextureWithTexCoords`. Some loader-generated Unity proxy assemblies omit the style setter, while custom texture wrappers can become invalid on affected Il2CppInterop runtimes. If another optional styled-IMGUI method is missing, the renderer switches to a colored fallback that retains the dark background, accent bar, title color, and body color. If the basic GUI methods are also unavailable, rendering is disabled instead of throwing on every `OnGUI` invocation.
+It also avoids `GUIStyleState.background`, custom runtime textures, and `DrawTextureWithTexCoords`. Some loader-generated Unity proxy assemblies omit the style setter, while custom texture wrappers can become invalid on affected Il2CppInterop runtimes. If another optional styled-IMGUI method is missing, the renderer switches to a colored fallback that retains the dark background, accent bar, title color, and body color. Compatibility IMGUI probes `fontSize` separately from `fontStyle`: when the size setter survives stripping it keeps the responsive typography without requiring bold text; otherwise it uses Unity's default font size with compact title spacing. If the basic GUI methods are also unavailable, rendering is disabled instead of throwing on every `OnGUI` invocation.
 
 A mod cannot restore a Unity method that the game developer already removed from `GameAssembly`. `link.xml` shipped with a runtime-loaded mod cannot change that. Toast can operate when at least one complete backend remains: uGUI requires the Unity UI modules and a built-in legacy font, while IMGUI requires its GUI and text-rendering surface.
 
@@ -256,4 +256,4 @@ dotnet build Utility.sln -c Release
 dotnet test Utility.sln -c Release --no-build
 ```
 
-The tests inspect `Utility.dll` metadata and reject known-dangerous references, including Unity object truthiness operators, `GUIStyleState.set_background`, `DrawTextureWithTexCoords`, and `GetAllAssetNames`. They verify that the core has no hard Unity UI dependency, that IMGUI failure retains the optional uGUI fallback, and that all AssetBundle fallback paths remain present.
+The tests inspect `Utility.dll` metadata and reject known-dangerous references, including Unity object truthiness operators, `GUIStyleState.set_background`, `DrawTextureWithTexCoords`, and `GetAllAssetNames`. They verify that the core has no hard Unity UI dependency, that IMGUI failure retains the optional uGUI fallback, and that all AssetBundle fallback paths remain present. Pure managed layout tests cover safe-area constraints, smooth orientation transitions, mixed natural card heights, shared renderer metrics, CJK text width, CRLF, and surrogate pairs.

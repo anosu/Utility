@@ -28,6 +28,10 @@ namespace Utility.Tests.Compatibility
             Assert.False(AssemblyMetadata.HasMemberReferenceNamed("GetEnumerator"));
 
         [Fact]
+        public void SpanPinningIsNotReferenced() =>
+            Assert.False(AssemblyMetadata.HasMemberReferenceNamed("GetPinnableReference"));
+
+        [Fact]
         public void ImguiRendererSetsExplicitTextColor() =>
             Assert.True(
                 AssemblyMetadata.HasMemberReference("UnityEngine", "GUIStyleState", "set_textColor")

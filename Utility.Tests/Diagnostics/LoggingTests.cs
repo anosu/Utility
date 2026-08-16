@@ -52,5 +52,33 @@ namespace Utility.Tests.Diagnostics
                 Logging.SetSink(null);
             }
         }
+
+        [Fact]
+        public void RecoverableFailuresOnlyForwardOneLineSummary()
+        {
+            LogEntry received = default;
+            Logging.SetSink(logEvent => received = logEvent);
+
+            try
+            {
+                Logging.WriteRecoverable(
+                    LogLevel.Warning,
+                    "Test",
+                    "Trying fallback.",
+                    new MissingMethodException("Method is unavailable.\nNative stack trace")
+                );
+
+                Assert.Null(received.Exception);
+                Assert.Equal(
+                    "Trying fallback. (MissingMethodException: Method is unavailable.)",
+                    received.Message
+                );
+                Assert.DoesNotContain("Native stack trace", received.Message);
+            }
+            finally
+            {
+                Logging.SetSink(null);
+            }
+        }
     }
 }

@@ -89,7 +89,7 @@ namespace Utility.Assets
                     catch (Exception exception)
                     {
                         LastError = exception;
-                        Logging.Write(
+                        Logging.WriteRecoverable(
                             LogLevel.Debug,
                             "Assets",
                             "AssetBundle.LoadFromFileAsync failed.",
@@ -195,7 +195,7 @@ namespace Utility.Assets
                 catch (Exception exception)
                 {
                     LastError = exception;
-                    Logging.Write(
+                    Logging.WriteRecoverable(
                         LogLevel.Debug,
                         "Assets",
                         "Synchronous named-asset loading failed; trying its asynchronous fallback.",
@@ -212,7 +212,7 @@ namespace Utility.Assets
             catch (Exception exception)
             {
                 LastError = exception;
-                Logging.Write(
+                Logging.WriteRecoverable(
                     LogLevel.Debug,
                     "Assets",
                     "Synchronous typed AssetBundle enumeration failed; trying its asynchronous fallback.",
@@ -233,7 +233,7 @@ namespace Utility.Assets
             catch (Exception exception)
             {
                 RecordError(exception);
-                Logging.Write(
+                Logging.WriteRecoverable(
                     LogLevel.Debug,
                     "Assets",
                     _assetName == null
@@ -256,7 +256,7 @@ namespace Utility.Assets
             catch (Exception exception)
             {
                 RecordError(exception);
-                Logging.Write(
+                Logging.WriteRecoverable(
                     LogLevel.Debug,
                     "Assets",
                     "Reading the asynchronous AssetBundle result failed.",
@@ -275,7 +275,7 @@ namespace Utility.Assets
             catch (Exception exception)
             {
                 LastError = exception;
-                Logging.Write(
+                Logging.WriteRecoverable(
                     LogLevel.Debug,
                     "Assets",
                     "AssetBundle.LoadFromFile failed; trying LoadFromFileAsync.",
@@ -294,7 +294,7 @@ namespace Utility.Assets
             catch (Exception exception)
             {
                 LastError ??= exception;
-                Logging.Write(
+                Logging.WriteRecoverable(
                     LogLevel.Warning,
                     "Assets",
                     "AssetBundle unloading failed.",
@@ -316,7 +316,7 @@ namespace Utility.Assets
                     ? $"The bundle contains no asset compatible with {typeof(TAsset).FullName}. Both explicit-type AssetBundle enumeration paths were attempted; use the asset-name constructor when enumeration is stripped."
                     : $"Asset '{_assetName}' is missing or is not compatible with {typeof(TAsset).FullName}.";
 
-            return LastError == null ? message : $"{message}{Environment.NewLine}{LastError}";
+            return message;
         }
 
         private void RecordError(Exception exception)

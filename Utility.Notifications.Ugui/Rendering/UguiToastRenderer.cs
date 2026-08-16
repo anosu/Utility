@@ -12,13 +12,8 @@ namespace Utility.Notifications.Ugui
 {
     internal sealed class UguiToastRenderer : IFrameToastRenderer
     {
-        private const float AccentWidth = 6f;
-        private const float BodyTop = 45f;
-        private const float BottomPadding = 15f;
-        private const float HorizontalPadding = 18f;
-        private const float TitleHeight = 28f;
-
         private readonly List<Card> _cards = new(ToastRuntime.Capacity);
+        private readonly float[] _heightCache = new float[ToastRuntime.Capacity];
         private readonly Font _font;
         private readonly GameObject _root;
         private readonly Sprite? _roundedCardSprite;
@@ -55,27 +50,34 @@ namespace Utility.Notifications.Ugui
             UnityObject.Destroy(_root);
         }
 
-        public void RenderFrame(IReadOnlyList<ToastItem> active, ToastTheme style)
+        public void RenderFrame(
+            IReadOnlyList<ToastItem> active,
+            ToastTheme style,
+            ToastLayout layout
+        )
         {
             EnsureCardCount(active.Count);
 
             float totalHeight = 0f;
             for (int i = 0; i < active.Count; i++)
+                _heightCache[i] = CalculateHeight(active[i].Message, layout);
+
+            layout.FitCardHeights(_heightCache, active.Count);
+            for (int i = 0; i < active.Count; i++)
             {
-                float height = CalculateHeight(active[i].Message, style);
-                _cards[i].Height = height;
-                totalHeight += height;
+                _cards[i].Height = _heightCache[i];
+                totalHeight += _heightCache[i];
             }
 
-            totalHeight += style.Gap * Math.Max(0, active.Count - 1);
+            totalHeight += layout.Gap * Math.Max(0, active.Count - 1);
             float offset = 0f;
             for (int i = 0; i < active.Count; i++)
             {
                 ToastItem item = active[i];
                 Card card = _cards[i];
-                PositionCard(card, style, totalHeight, offset);
-                UpdateCard(card, item, style);
-                offset += card.Height + style.Gap;
+                PositionCard(card, style, layout, totalHeight, offset);
+                UpdateCard(card, item, style, layout);
+                offset += card.Height + layout.Gap;
             }
 
             for (int i = active.Count; i < _cards.Count; i++)
@@ -109,15 +111,18 @@ namespace Utility.Notifications.Ugui
             RectTransform accentRect = GetRequiredComponent<RectTransform>(accentObject);
             accentRect.anchorMin = new Vector2(0f, 0f);
             accentRect.anchorMax = new Vector2(0f, 1f);
-            accentRect.offsetMin = new Vector2(0f, 8f);
-            accentRect.offsetMax = new Vector2(AccentWidth, -8f);
+            accentRect.offsetMin = new Vector2(0f, ToastMetrics.CornerRadius);
+            accentRect.offsetMax = new Vector2(
+                ToastMetrics.AccentWidth,
+                -ToastMetrics.CornerRadius
+            );
             Image accent = GetRequiredComponent<Image>(accentObject);
             accent.raycastTarget = false;
 
             Text title = CreateText(root.transform, "Title", FontStyle.Bold, TextAnchor.UpperLeft);
             Text body = CreateText(root.transform, "Body", FontStyle.Normal, TextAnchor.UpperLeft);
             body.horizontalOverflow = HorizontalWrapMode.Wrap;
-            body.verticalOverflow = VerticalWrapMode.Overflow;
+            body.verticalOverflow = VerticalWrapMode.Truncate;
 
             return new Card(
                 root,
@@ -149,6 +154,7 @@ namespace Utility.Notifications.Ugui
         private static void PositionCard(
             Card card,
             ToastTheme style,
+            ToastLayout layout,
             float totalHeight,
             float offset
         )
@@ -164,46 +170,47 @@ namespace Utility.Notifications.Ugui
                 ToastAnchor.TopCenter or ToastAnchor.BottomCenter => 0.5f,
                 _ => 1f,
             };
-            float positionX = anchorX switch
-            {
-                0f => style.Margin,
-                1f => -style.Margin,
-                _ => 0f,
-            };
+            float positionX = layout.CalculateUguiX(style.Anchor);
             float positionY = bottom
-                ? style.Margin + totalHeight - offset - card.Height
-                : -style.Margin - offset;
+                ? layout.UguiBottomInset + totalHeight - offset - card.Height
+                : -layout.UguiTopInset - offset;
 
             card.Rect.anchorMin = new Vector2(anchorX, bottom ? 0f : 1f);
             card.Rect.anchorMax = card.Rect.anchorMin;
             card.Rect.pivot = new Vector2(anchorX, bottom ? 0f : 1f);
             card.Rect.anchoredPosition = new Vector2(positionX, positionY);
-            card.Rect.sizeDelta = new Vector2(style.Width, card.Height);
+            card.Rect.sizeDelta = new Vector2(layout.Width, card.Height);
 
-            SetTopRect(card.Title.rectTransform, HorizontalPadding, 15f, TitleHeight);
+            float accentInset = Math.Min(ToastMetrics.CornerRadius, card.Height * 0.5f);
+            RectTransform accentRect = card.Accent.rectTransform;
+            accentRect.offsetMin = new Vector2(0f, accentInset);
+            accentRect.offsetMax = new Vector2(ToastMetrics.AccentWidth, -accentInset);
+
+            float titleHeight = ToastMetrics.CalculateTitleHeight(layout);
+            float bodyTop = ToastMetrics.CalculateMessageTop(layout);
+            SetTopRect(card.Title.rectTransform, ToastMetrics.TopPadding, titleHeight);
             SetTopRect(
                 card.Body.rectTransform,
-                HorizontalPadding,
-                BodyTop,
-                card.Height - BodyTop - BottomPadding
+                bodyTop,
+                ToastMetrics.CalculateMessageHeight(card.Height, bodyTop)
             );
         }
 
-        private static void SetTopRect(
-            RectTransform rect,
-            float horizontalPadding,
-            float top,
-            float height
-        )
+        private static void SetTopRect(RectTransform rect, float top, float height)
         {
             rect.anchorMin = new Vector2(0f, 1f);
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(0.5f, 1f);
-            rect.anchoredPosition = new Vector2(AccentWidth * 0.5f, -top);
-            rect.sizeDelta = new Vector2(-horizontalPadding * 2f - AccentWidth, height);
+            rect.anchoredPosition = new Vector2(ToastMetrics.StretchedContentOffsetX, -top);
+            rect.sizeDelta = new Vector2(ToastMetrics.StretchedContentWidthDelta, height);
         }
 
-        private static void UpdateCard(Card card, ToastItem item, ToastTheme style)
+        private static void UpdateCard(
+            Card card,
+            ToastItem item,
+            ToastTheme style,
+            ToastLayout layout
+        )
         {
             float alpha = item.Alpha;
             card.Root.SetActive(alpha > 0f);
@@ -218,43 +225,28 @@ namespace Utility.Notifications.Ugui
             card.Accent.color = WithAlpha(accent, accent.a * alpha);
 
             card.Title.text = item.Title;
-            card.Title.fontSize = style.TitleSize;
+            card.Title.fontSize = layout.TitleSize;
             card.Title.color = WithAlpha(style.TitleColor, style.TitleColor.a * alpha);
 
             card.Body.text = item.Message;
-            card.Body.fontSize = style.TextSize;
+            card.Body.fontSize = layout.TextSize;
             card.Body.color = WithAlpha(style.TextColor, style.TextColor.a * alpha);
         }
 
-        private static float CalculateHeight(string message, ToastTheme style)
+        private static float CalculateHeight(string message, ToastLayout layout)
         {
-            int maxCharacters = Math.Max(
-                8,
-                (int)((style.Width - 42f) / Math.Max(8f, style.TextSize * 0.55f))
+            float bodyTop = ToastMetrics.CalculateMessageTop(layout);
+            int lineCount = ToastTextMetrics.EstimateLineCount(
+                message,
+                ToastMetrics.ContentWidth(layout.Width),
+                layout.TextSize
             );
-            int lineCount = 1;
-            int column = 0;
-            for (int i = 0; i < message.Length; i++)
-            {
-                if (message[i] == '\n')
-                {
-                    lineCount++;
-                    column = 0;
-                }
-                else
-                {
-                    if (column >= maxCharacters)
-                    {
-                        lineCount++;
-                        column = 0;
-                    }
 
-                    column++;
-                }
-            }
-
-            float bodyHeight = lineCount * (style.TextSize + 4f);
-            return Math.Max(style.MinimumHeight, BodyTop + bodyHeight + BottomPadding);
+            float bodyHeight = lineCount * (layout.TextSize + 4f);
+            return Math.Max(
+                layout.MinimumHeight,
+                bodyTop + bodyHeight + ToastMetrics.BottomPadding
+            );
         }
 
         private static Font LoadBuiltinFont()
@@ -276,7 +268,7 @@ namespace Utility.Notifications.Ugui
                 catch (Exception exception)
                 {
                     lastError = exception;
-                    Logging.Write(
+                    Logging.WriteRecoverable(
                         LogLevel.Debug,
                         "Toast",
                         $"Built-in uGUI font '{candidates[i]}' is unavailable.",
@@ -313,12 +305,12 @@ namespace Utility.Notifications.Ugui
                 }
             }
 
-            Logging.Write(
-                LogLevel.Debug,
-                "Toast",
-                "No built-in sliced UI sprite is available; uGUI cards will use square corners.",
-                lastError
-            );
+            const string message =
+                "No built-in sliced UI sprite is available; uGUI cards will use square corners.";
+            if (lastError == null)
+                Logging.Write(LogLevel.Debug, "Toast", message);
+            else
+                Logging.WriteRecoverable(LogLevel.Debug, "Toast", message, lastError);
             return null;
         }
 
@@ -335,7 +327,7 @@ namespace Utility.Notifications.Ugui
             }
             catch (Exception exception)
             {
-                Logging.Write(
+                Logging.WriteRecoverable(
                     LogLevel.Debug,
                     "Toast",
                     "Applying the built-in rounded uGUI sprite failed; using square corners.",

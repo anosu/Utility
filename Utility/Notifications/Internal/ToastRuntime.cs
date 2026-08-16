@@ -18,6 +18,8 @@ namespace Utility.Notifications.Internal
         private ToastTheme? _theme;
         private Exception? _backendError;
         private Transform? _host;
+        private ToastLayout _layout;
+        private bool _hasLayout;
         private bool _uguiFallbackPending;
 
         private ToastRuntime() { }
@@ -47,9 +49,14 @@ namespace Utility.Notifications.Internal
                 return;
 
             ToastTheme style = _theme;
+            ToastLayout layout = default;
             _commands.RunExclusive(commands =>
             {
                 ApplyCommands(commands, style);
+                layout = ToastLayoutProvider.Calculate(style);
+                _layout = layout;
+                _hasLayout = true;
+                DeferOverflow(layout.MaximumVisible);
 
                 float elapsed = float.IsFinite(deltaTime) ? Math.Max(deltaTime, 0f) : 0f;
                 for (int i = _active.Count - 1; i >= 0; i--)
@@ -63,7 +70,7 @@ namespace Utility.Notifications.Internal
                     _commands.RemoveExpiredItem();
                 }
 
-                while (_waiting.Count > 0 && _active.Count < style.MaximumVisible)
+                while (_waiting.Count > 0 && _active.Count < layout.MaximumVisible)
                     _active.Add(_waiting.Dequeue());
             });
 
@@ -75,7 +82,7 @@ namespace Utility.Notifications.Internal
 
             try
             {
-                _frameRenderer.RenderFrame(_active, style);
+                _frameRenderer.RenderFrame(_active, style, layout);
             }
             catch (Exception exception)
             {
@@ -90,7 +97,10 @@ namespace Utility.Notifications.Internal
 
             try
             {
-                _imguiRenderer.Render(_active, _theme);
+                ToastLayout layout = _hasLayout
+                    ? _layout
+                    : ToastLayoutProvider.Calculate(_theme);
+                _imguiRenderer.Render(_active, _theme, layout);
             }
             catch (Exception exception)
             {
@@ -114,6 +124,7 @@ namespace Utility.Notifications.Internal
 
             _host = host;
             _backendError = null;
+            _hasLayout = false;
             _uguiFallbackPending = false;
             _imguiRenderer = new ImguiToastRenderer();
             Logging.Write(LogLevel.Information, "Toast", "Using the preferred IMGUI renderer.");
@@ -129,7 +140,7 @@ namespace Utility.Notifications.Internal
             catch (Exception exception)
             {
                 _backendError = exception;
-                Logging.Write(
+                Logging.WriteRecoverable(
                     LogLevel.Warning,
                     "Toast",
                     "Disposing the uGUI renderer failed.",
@@ -141,6 +152,7 @@ namespace Utility.Notifications.Internal
             _frameRenderer = null;
             _theme = null;
             _host = null;
+            _hasLayout = false;
             _uguiFallbackPending = false;
         }
 
@@ -183,13 +195,29 @@ namespace Utility.Notifications.Internal
             }
         }
 
+        private void DeferOverflow(int maximumVisible)
+        {
+            if (_active.Count <= maximumVisible)
+                return;
+
+            var reordered = new Queue<ToastItem>(Capacity);
+            for (int i = maximumVisible; i < _active.Count; i++)
+                reordered.Enqueue(_active[i]);
+            while (_waiting.Count > 0)
+                reordered.Enqueue(_waiting.Dequeue());
+
+            _active.RemoveRange(maximumVisible, _active.Count - maximumVisible);
+            while (reordered.Count > 0)
+                _waiting.Enqueue(reordered.Dequeue());
+        }
+
         private void QueueUguiFallback(Exception exception)
         {
             _imguiRenderer?.Dispose();
             _imguiRenderer = null;
             _backendError = exception;
             _uguiFallbackPending = true;
-            Logging.Write(
+            Logging.WriteRecoverable(
                 LogLevel.Warning,
                 "Toast",
                 "IMGUI rendering failed; queued the optional uGUI fallback.",
@@ -209,8 +237,7 @@ namespace Utility.Notifications.Internal
                 Logging.Write(
                     LogLevel.Warning,
                     "Toast",
-                    "Switched from IMGUI to the optional uGUI renderer.",
-                    _backendError
+                    "Switched from IMGUI to the optional uGUI renderer."
                 );
                 return;
             }

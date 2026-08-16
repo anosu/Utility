@@ -5,13 +5,14 @@ using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
+using Utility.Diagnostics;
 using UnityObject = UnityEngine.Object;
 
-namespace Utility.Fonts
+namespace Utility.Assets
 {
     /// <summary>Loads an IL2CPP Unity asset without binding the utility assembly to its concrete namespace.</summary>
     /// <typeparam name="TAsset">The generated wrapper type expected by the current loader.</typeparam>
-    public class FontHelper<TAsset>
+    public sealed class AssetBundleLoader<TAsset>
         where TAsset : UnityObject
     {
         private readonly string? _assetName;
@@ -23,7 +24,7 @@ namespace Utility.Fonts
         /// This overload preserves automatic discovery using the explicit-type synchronous and
         /// asynchronous AssetBundle APIs. Prefer the asset-name overload on heavily stripped games.
         /// </remarks>
-        public FontHelper(string bundlePath)
+        public AssetBundleLoader(string bundlePath)
         {
             if (string.IsNullOrWhiteSpace(bundlePath))
                 throw new ArgumentException("Bundle path cannot be empty.", nameof(bundlePath));
@@ -34,7 +35,7 @@ namespace Utility.Fonts
         /// <summary>Initializes a new instance that loads an asset by its exact bundle name.</summary>
         /// <param name="bundlePath">The absolute or game-relative path to the asset bundle.</param>
         /// <param name="assetName">The exact asset name stored in the bundle.</param>
-        public FontHelper(string bundlePath, string assetName)
+        public AssetBundleLoader(string bundlePath, string assetName)
             : this(bundlePath)
         {
             if (string.IsNullOrWhiteSpace(assetName))
@@ -47,11 +48,11 @@ namespace Utility.Fonts
         public TAsset? Asset { get; private set; }
 
         /// <summary>Gets a value that indicates whether a load operation is active.</summary>
-        public bool Loading { get; private set; }
+        public bool IsLoading { get; private set; }
 
         /// <summary>Gets a value that indicates whether an asset wrapper has been loaded.</summary>
         /// <remarks>This property deliberately avoids invoking Unity's native object operators.</remarks>
-        public bool Valid => !ReferenceEquals(Asset, null);
+        public bool IsLoaded => !ReferenceEquals(Asset, null);
 
         /// <summary>Gets the last recoverable exception encountered while probing load paths.</summary>
         public Exception? LastError { get; private set; }
@@ -59,19 +60,19 @@ namespace Utility.Fonts
         /// <summary>Loads the configured asset and keeps it alive after unloading the bundle.</summary>
         /// <param name="onComplete">An optional callback invoked after a successful load.</param>
         /// <returns>An enumerator suitable for a Unity coroutine.</returns>
-        public IEnumerator LoadAsync(Action? onComplete = null)
+        public IEnumerator Load(Action? onComplete = null)
         {
-            if (Valid)
+            if (IsLoaded)
             {
                 onComplete?.Invoke();
                 yield break;
             }
 
-            if (Loading)
+            if (IsLoading)
                 yield break;
 
             EnsureBundleExists();
-            Loading = true;
+            IsLoading = true;
             LastError = null;
             AssetBundle? bundle = null;
 
@@ -88,6 +89,12 @@ namespace Utility.Fonts
                     catch (Exception exception)
                     {
                         LastError = exception;
+                        Logging.Write(
+                            LogLevel.Debug,
+                            "Assets",
+                            "AssetBundle.LoadFromFileAsync failed.",
+                            exception
+                        );
                     }
 
                     if (ReferenceEquals(request, null))
@@ -108,7 +115,7 @@ namespace Utility.Fonts
                     );
 
                 Asset = TryLoadAsset(bundle);
-                if (!Valid)
+                if (!IsLoaded)
                 {
                     AssetBundleRequest? request = TryLoadAssetAsync(bundle);
                     if (!ReferenceEquals(request, null))
@@ -118,10 +125,17 @@ namespace Utility.Fonts
                     }
                 }
 
-                if (!Valid)
+                if (!IsLoaded)
                 {
                     string message = CreateLoadFailureMessage();
-                    throw new InvalidOperationException(message, LastError);
+                    var exception = new InvalidOperationException(message, LastError);
+                    Logging.Write(
+                        LogLevel.Error,
+                        "Assets",
+                        "Asset loading failed on every available path.",
+                        exception
+                    );
+                    throw exception;
                 }
 
                 Asset!.hideFlags = HideFlags.HideAndDontSave;
@@ -132,9 +146,9 @@ namespace Utility.Fonts
             finally
             {
                 if (!ReferenceEquals(bundle, null))
-                    TryUnloadBundle(bundle, unloadLoadedObjects: !Valid);
+                    TryUnloadBundle(bundle, unloadLoadedObjects: !IsLoaded);
 
-                Loading = false;
+                IsLoading = false;
             }
         }
 
@@ -181,6 +195,12 @@ namespace Utility.Fonts
                 catch (Exception exception)
                 {
                     LastError = exception;
+                    Logging.Write(
+                        LogLevel.Debug,
+                        "Assets",
+                        "Synchronous named-asset loading failed; trying its asynchronous fallback.",
+                        exception
+                    );
                     return null;
                 }
             }
@@ -192,6 +212,12 @@ namespace Utility.Fonts
             catch (Exception exception)
             {
                 LastError = exception;
+                Logging.Write(
+                    LogLevel.Debug,
+                    "Assets",
+                    "Synchronous typed AssetBundle enumeration failed; trying its asynchronous fallback.",
+                    exception
+                );
                 return null;
             }
         }
@@ -207,6 +233,14 @@ namespace Utility.Fonts
             catch (Exception exception)
             {
                 RecordError(exception);
+                Logging.Write(
+                    LogLevel.Debug,
+                    "Assets",
+                    _assetName == null
+                        ? "Asynchronous typed AssetBundle enumeration is unavailable."
+                        : "Asynchronous named-asset loading is unavailable.",
+                    exception
+                );
                 return null;
             }
         }
@@ -222,6 +256,12 @@ namespace Utility.Fonts
             catch (Exception exception)
             {
                 RecordError(exception);
+                Logging.Write(
+                    LogLevel.Debug,
+                    "Assets",
+                    "Reading the asynchronous AssetBundle result failed.",
+                    exception
+                );
                 return null;
             }
         }
@@ -235,6 +275,12 @@ namespace Utility.Fonts
             catch (Exception exception)
             {
                 LastError = exception;
+                Logging.Write(
+                    LogLevel.Debug,
+                    "Assets",
+                    "AssetBundle.LoadFromFile failed; trying LoadFromFileAsync.",
+                    exception
+                );
                 return null;
             }
         }
@@ -248,6 +294,12 @@ namespace Utility.Fonts
             catch (Exception exception)
             {
                 LastError ??= exception;
+                Logging.Write(
+                    LogLevel.Warning,
+                    "Assets",
+                    "AssetBundle unloading failed.",
+                    exception
+                );
             }
         }
 
@@ -278,20 +330,5 @@ namespace Utility.Fonts
                         exception
                     );
         }
-    }
-
-    /// <summary>Loads an asset as <see cref="UnityObject"/> when a concrete generated wrapper is not required.</summary>
-    public sealed class FontHelper : FontHelper<UnityObject>
-    {
-        /// <summary>Initializes a new instance that scans the bundle for the first asset.</summary>
-        /// <param name="bundlePath">The absolute or game-relative path to the asset bundle.</param>
-        public FontHelper(string bundlePath)
-            : base(bundlePath) { }
-
-        /// <summary>Initializes a new instance that loads an asset by its exact bundle name.</summary>
-        /// <param name="bundlePath">The absolute or game-relative path to the asset bundle.</param>
-        /// <param name="assetName">The exact asset name stored in the bundle.</param>
-        public FontHelper(string bundlePath, string assetName)
-            : base(bundlePath, assetName) { }
     }
 }

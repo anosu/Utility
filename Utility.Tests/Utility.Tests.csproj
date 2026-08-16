@@ -1,9 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>disable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
@@ -11,21 +8,21 @@
   <ItemGroup>
     <ProjectReference Include="..\Utility\Utility.csproj" />
     <Reference Include="Il2Cppmscorlib">
-      <HintPath>..\Utility\lib\Proxies\Il2Cppmscorlib.dll</HintPath>
+      <HintPath>$(UnityProxyDir)\Il2Cppmscorlib.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>..\Utility\lib\Proxies\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(UnityProxyDir)\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.AssetBundleModule">
-      <HintPath>..\Utility\lib\Proxies\UnityEngine.AssetBundleModule.dll</HintPath>
+      <HintPath>$(UnityProxyDir)\UnityEngine.AssetBundleModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>..\Utility\lib\Proxies\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>$(UnityProxyDir)\UnityEngine.IMGUIModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>..\Utility\lib\Proxies\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(UnityProxyDir)\UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
-    <PackageReference Include="Il2CppInterop.Runtime" Version="1.5.1" />
+    <PackageReference Include="Il2CppInterop.Runtime" Version="$(Il2CppInteropVersion)" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">

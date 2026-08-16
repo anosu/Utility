@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using Utility.Diagnostics;
 
-namespace Utility.Toast
+namespace Utility.Notifications.Internal
 {
-    internal sealed class ToastRenderer : IDisposable
+    internal sealed class ImguiToastRenderer : IDisposable
     {
         private const float BarWidth = 6f;
         private const float MessageTop = 45f;
@@ -19,13 +20,17 @@ namespace Utility.Toast
 
         private bool _compatibilityMode;
         private bool _disabled;
+        private GUIStyle? _compatibilityTextStyle;
+        private GUIStyle? _compatibilityTitleStyle;
         private GUIStyle? _textStyle;
         private GUIStyle? _titleStyle;
         private int _styleVersion = -1;
 
         internal Exception? LastError { get; private set; }
 
-        internal void Render(IReadOnlyList<ToastData> active, ToastStyle style)
+        internal bool IsDisabled => _disabled;
+
+        internal void Render(IReadOnlyList<ToastItem> active, ToastTheme style)
         {
             if (_disabled || active.Count == 0)
                 return;
@@ -45,6 +50,12 @@ namespace Utility.Toast
             {
                 LastError = exception;
                 _compatibilityMode = true;
+                Logging.Write(
+                    LogLevel.Warning,
+                    "Toast",
+                    "Styled IMGUI rendering failed; switched to compatibility rendering.",
+                    exception
+                );
                 TryRenderCompatibility(active, style);
             }
         }
@@ -53,15 +64,23 @@ namespace Utility.Toast
         {
             LastError = exception;
             _disabled = true;
+            Logging.Write(
+                LogLevel.Error,
+                "Toast",
+                "IMGUI rendering was disabled after an unrecoverable failure.",
+                exception
+            );
         }
 
         public void Dispose()
         {
+            _compatibilityTextStyle = null;
+            _compatibilityTitleStyle = null;
             _textStyle = null;
             _titleStyle = null;
         }
 
-        private void RenderStyled(IReadOnlyList<ToastData> active, ToastStyle style)
+        private void RenderStyled(IReadOnlyList<ToastItem> active, ToastTheme style)
         {
             int count = active.Count;
             EnsureStyles(style);
@@ -73,7 +92,7 @@ namespace Utility.Toast
                 _content.text = active[i].Message;
                 float contentHeight =
                     MessageTop + _textStyle!.CalcHeight(_content, textWidth) + PaddingBottom;
-                float height = Mathf.Max(contentHeight, style.MaxHeight);
+                float height = Mathf.Max(contentHeight, style.MinimumHeight);
                 _heightCache[i] = height;
                 totalHeight += height;
             }
@@ -82,15 +101,14 @@ namespace Utility.Toast
             float x = CalculateX(style);
             float y = style.Anchor switch
             {
-                Anchor.BottomLeft or Anchor.BottomRight or Anchor.BottomCenter => Screen.height
-                    - style.Margin
-                    - totalHeight,
+                ToastAnchor.BottomLeft or ToastAnchor.BottomRight or ToastAnchor.BottomCenter =>
+                    Screen.height - style.Margin - totalHeight,
                 _ => style.Margin,
             };
 
             for (int i = 0; i < count; i++)
             {
-                ToastData item = active[i];
+                ToastItem item = active[i];
                 float height = _heightCache[i];
                 if (item.Alpha > 0f)
                     DrawCard(item, style, x, y, height, textWidth);
@@ -99,17 +117,18 @@ namespace Utility.Toast
             }
         }
 
-        private static float CalculateX(ToastStyle style) =>
+        private static float CalculateX(ToastTheme style) =>
             style.Anchor switch
             {
-                Anchor.TopLeft or Anchor.BottomLeft => style.Margin,
-                Anchor.TopCenter or Anchor.BottomCenter => (Screen.width - style.Width) * 0.5f,
+                ToastAnchor.TopLeft or ToastAnchor.BottomLeft => style.Margin,
+                ToastAnchor.TopCenter or ToastAnchor.BottomCenter => (Screen.width - style.Width)
+                    * 0.5f,
                 _ => Screen.width - style.Width - style.Margin,
             };
 
         private void DrawCard(
-            ToastData item,
-            ToastStyle style,
+            ToastItem item,
+            ToastTheme style,
             float x,
             float y,
             float height,
@@ -123,12 +142,12 @@ namespace Utility.Toast
 
             try
             {
-                Color color = style.BgColor;
+                Color color = style.BackgroundColor;
                 color.a *= alpha;
                 GUI.color = color;
                 DrawCardBackground(x, y, style.Width, height);
 
-                color = style.Accent(item.Type);
+                color = style.Accent(item.Kind);
                 color.a *= alpha;
                 GUI.color = color;
                 GUI.DrawTexture(
@@ -164,7 +183,7 @@ namespace Utility.Toast
             }
         }
 
-        private void EnsureStyles(ToastStyle style)
+        private void EnsureStyles(ToastTheme style)
         {
             if (_styleVersion == style.Version)
                 return;
@@ -217,7 +236,7 @@ namespace Utility.Toast
             float inset
         ) => GUI.DrawTexture(new Rect(x + inset, y + yOffset, width - inset * 2f, height), texture);
 
-        private void TryRenderCompatibility(IReadOnlyList<ToastData> active, ToastStyle style)
+        private void TryRenderCompatibility(IReadOnlyList<ToastItem> active, ToastTheme style)
         {
             try
             {
@@ -227,20 +246,26 @@ namespace Utility.Toast
             {
                 LastError = exception;
                 _disabled = true;
+                Logging.Write(
+                    LogLevel.Error,
+                    "Toast",
+                    "Compatibility IMGUI rendering failed and was disabled.",
+                    exception
+                );
             }
         }
 
-        private void RenderCompatibility(IReadOnlyList<ToastData> active, ToastStyle style)
+        private void RenderCompatibility(IReadOnlyList<ToastItem> active, ToastTheme style)
         {
-            EnsureStyles(style);
+            EnsureCompatibilityStyles(style);
             int maxCharacters = Math.Max(8, (int)((style.Width - 24f) / 8f));
             float totalHeight = 0f;
 
             for (int i = 0; i < active.Count; i++)
             {
-                ToastData item = active[i];
+                ToastItem item = active[i];
                 GetWrappedMessage(item, maxCharacters, out int lineCount);
-                float height = Math.Max(28f + lineCount * 18f, style.MaxHeight);
+                float height = Math.Max(28f + lineCount * 18f, style.MinimumHeight);
                 _heightCache[i] = height;
                 totalHeight += height;
             }
@@ -249,15 +274,14 @@ namespace Utility.Toast
             float x = CalculateX(style);
             float y = style.Anchor switch
             {
-                Anchor.BottomLeft or Anchor.BottomRight or Anchor.BottomCenter => Screen.height
-                    - style.Margin
-                    - totalHeight,
+                ToastAnchor.BottomLeft or ToastAnchor.BottomRight or ToastAnchor.BottomCenter =>
+                    Screen.height - style.Margin - totalHeight,
                 _ => style.Margin,
             };
 
             for (int i = 0; i < active.Count; i++)
             {
-                ToastData item = active[i];
+                ToastItem item = active[i];
                 float alpha = item.Alpha;
                 Color previousColor = GUI.color;
                 Color previousContentColor = GUI.contentColor;
@@ -265,12 +289,12 @@ namespace Utility.Toast
 
                 try
                 {
-                    Color background = style.BgColor;
+                    Color background = style.BackgroundColor;
                     background.a *= alpha;
                     GUI.color = background;
                     DrawCardBackground(x, y, style.Width, height);
 
-                    Color accent = style.Accent(item.Type);
+                    Color accent = style.Accent(item.Kind);
                     accent.a *= alpha;
                     GUI.color = accent;
                     GUI.DrawTexture(
@@ -280,7 +304,7 @@ namespace Utility.Toast
 
                     GUI.color = new Color(1f, 1f, 1f, 1f);
                     GUI.contentColor = new Color(1f, 1f, 1f, 1f);
-                    _titleStyle!.normal.textColor = WithAlpha(style.TitleColor, alpha);
+                    _compatibilityTitleStyle!.normal.textColor = WithAlpha(style.TitleColor, alpha);
                     GUI.Label(
                         new Rect(
                             x + BarWidth + 12f,
@@ -289,10 +313,10 @@ namespace Utility.Toast
                             TitleHeight
                         ),
                         item.Title,
-                        _titleStyle
+                        _compatibilityTitleStyle
                     );
 
-                    _textStyle!.normal.textColor = WithAlpha(style.TextColor, alpha);
+                    _compatibilityTextStyle!.normal.textColor = WithAlpha(style.TextColor, alpha);
                     GUI.Label(
                         new Rect(
                             x + BarWidth + 12f,
@@ -301,7 +325,7 @@ namespace Utility.Toast
                             height - MessageTop - PaddingBottom
                         ),
                         item.CompatibilityMessage ?? item.Message,
-                        _textStyle
+                        _compatibilityTextStyle
                     );
                 }
                 finally
@@ -314,7 +338,7 @@ namespace Utility.Toast
             }
         }
 
-        private static void GetWrappedMessage(ToastData item, int maxCharacters, out int lineCount)
+        private static void GetWrappedMessage(ToastItem item, int maxCharacters, out int lineCount)
         {
             if (item.CompatibilityMessage != null && item.CompatibilityCharacters == maxCharacters)
             {
@@ -351,6 +375,17 @@ namespace Utility.Toast
             item.CompatibilityMessage = result.ToString();
             item.CompatibilityCharacters = maxCharacters;
             item.CompatibilityLineCount = lineCount;
+        }
+
+        private void EnsureCompatibilityStyles(ToastTheme style)
+        {
+            if (_compatibilityTitleStyle != null && _compatibilityTextStyle != null)
+                return;
+
+            _compatibilityTitleStyle = new GUIStyle();
+            _compatibilityTextStyle = new GUIStyle();
+            _compatibilityTitleStyle.normal.textColor = style.TitleColor;
+            _compatibilityTextStyle.normal.textColor = style.TextColor;
         }
     }
 }

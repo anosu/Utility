@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
@@ -54,13 +55,17 @@ namespace Utility.Assets
         /// <remarks>This property deliberately avoids invoking Unity's native object operators.</remarks>
         public bool IsLoaded => !ReferenceEquals(Asset, null);
 
-        /// <summary>Gets the last recoverable exception encountered while probing load paths.</summary>
+        /// <summary>Gets the last exception encountered during a load operation.</summary>
         public Exception? LastError { get; private set; }
 
         /// <summary>Loads the configured asset and keeps it alive after unloading the bundle.</summary>
         /// <param name="onComplete">An optional callback invoked after a successful load.</param>
+        /// <param name="onError">
+        /// An optional callback invoked with a terminal load error. When supplied, the error is
+        /// reported through the callback instead of escaping the coroutine.
+        /// </param>
         /// <returns>An enumerator suitable for a Unity coroutine.</returns>
-        public IEnumerator Load(Action? onComplete = null)
+        public IEnumerator Load(Action? onComplete = null, Action<Exception>? onError = null)
         {
             if (IsLoaded)
             {
@@ -71,6 +76,55 @@ namespace Utility.Assets
             if (IsLoading)
                 yield break;
 
+            IEnumerator operation = LoadCore();
+            try
+            {
+                while (true)
+                {
+                    bool hasNext;
+                    object? current = null;
+                    Exception? loadError = null;
+
+                    try
+                    {
+                        hasNext = operation.MoveNext();
+                        if (hasNext)
+                            current = operation.Current;
+                    }
+                    catch (Exception exception)
+                    {
+                        hasNext = false;
+                        loadError = exception;
+                    }
+
+                    if (loadError != null)
+                    {
+                        LastError = loadError;
+                        Logging.Write(LogLevel.Error, "Assets", "Asset loading failed.", loadError);
+
+                        if (onError == null)
+                            ExceptionDispatchInfo.Capture(loadError).Throw();
+
+                        onError(loadError);
+                        yield break;
+                    }
+
+                    if (!hasNext)
+                        break;
+
+                    yield return current;
+                }
+            }
+            finally
+            {
+                (operation as IDisposable)?.Dispose();
+            }
+
+            onComplete?.Invoke();
+        }
+
+        private IEnumerator LoadCore()
+        {
             EnsureBundleExists();
             IsLoading = true;
             LastError = null;
@@ -128,20 +182,12 @@ namespace Utility.Assets
                 if (!IsLoaded)
                 {
                     string message = CreateLoadFailureMessage();
-                    var exception = new InvalidOperationException(message, LastError);
-                    Logging.Write(
-                        LogLevel.Error,
-                        "Assets",
-                        "Asset loading failed on every available path.",
-                        exception
-                    );
-                    throw exception;
+                    throw new InvalidOperationException(message, LastError);
                 }
 
                 Asset!.hideFlags = HideFlags.HideAndDontSave;
                 UnityObject.DontDestroyOnLoad(Asset);
                 LastError = null;
-                onComplete?.Invoke();
             }
             finally
             {

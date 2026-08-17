@@ -68,10 +68,7 @@ namespace Utility.Notifications.Internal
             if (count == 0)
                 return;
 
-            float availableForCards = Math.Max(
-                1f,
-                AvailableHeight - Gap * Math.Max(0, count - 1)
-            );
+            float availableForCards = Math.Max(1f, AvailableHeight - Gap * Math.Max(0, count - 1));
             float minimum = Math.Min(MinimumHeight, availableForCards / count);
             float total = 0f;
             float maximum = minimum;
@@ -111,8 +108,8 @@ namespace Utility.Notifications.Internal
             anchor switch
             {
                 ToastAnchor.TopLeft or ToastAnchor.BottomLeft => SafeArea.X + Margin,
-                ToastAnchor.TopCenter or ToastAnchor.BottomCenter =>
-                    SafeArea.X + (SafeArea.Width - Width) * 0.5f,
+                ToastAnchor.TopCenter or ToastAnchor.BottomCenter => SafeArea.X
+                    + (SafeArea.Width - Width) * 0.5f,
                 _ => SafeArea.XMax - Margin - Width,
             };
 
@@ -128,8 +125,9 @@ namespace Utility.Notifications.Internal
             anchor switch
             {
                 ToastAnchor.TopLeft or ToastAnchor.BottomLeft => SafeArea.X + Margin,
-                ToastAnchor.TopCenter or ToastAnchor.BottomCenter =>
-                    SafeArea.X + SafeArea.Width * 0.5f - ScreenWidth * 0.5f,
+                ToastAnchor.TopCenter or ToastAnchor.BottomCenter => SafeArea.X
+                    + SafeArea.Width * 0.5f
+                    - ScreenWidth * 0.5f,
                 _ => -(ScreenWidth - SafeArea.XMax + Margin),
             };
 
@@ -185,18 +183,12 @@ namespace Utility.Notifications.Internal
                 Math.Max(0f, (shortestSide - 1f) * 0.5f)
             );
             float availableWidth = Math.Max(1f, safeArea.Width - margin * 2f);
-            float width = Math.Min(
-                Math.Min(theme.Width * layoutScale, availableWidth),
-                widthLimit
-            );
+            float width = Math.Min(Math.Min(theme.Width * layoutScale, availableWidth), widthLimit);
             float minimumHeight = Math.Min(
                 theme.MinimumHeight * layoutScale,
                 Math.Max(1f, safeArea.Height - margin * 2f)
             );
-            float gap = Math.Min(
-                theme.Gap * layoutScale,
-                Math.Max(0f, safeArea.Height * 0.1f)
-            );
+            float gap = Math.Min(theme.Gap * layoutScale, Math.Max(0f, safeArea.Height * 0.1f));
             int maximumVisible = CalculateMaximumVisible(
                 theme.MaximumVisible,
                 safeArea.Height,
@@ -245,14 +237,9 @@ namespace Utility.Notifications.Internal
 
             const float LandscapeAspect = 4f / 3f;
             float aspectRatio = safeArea.Width / safeArea.Height;
-            float progress = Math.Clamp(
-                (aspectRatio - 1f) / (LandscapeAspect - 1f),
-                0f,
-                1f
-            );
+            float progress = Math.Clamp((aspectRatio - 1f) / (LandscapeAspect - 1f), 0f, 1f);
             float smoothProgress = progress * progress * (3f - 2f * progress);
-            float widthFraction =
-                1f + (MaximumLandscapeWidthFraction - 1f) * smoothProgress;
+            float widthFraction = 1f + (MaximumLandscapeWidthFraction - 1f) * smoothProgress;
             return safeArea.Width * widthFraction;
         }
 
@@ -320,10 +307,6 @@ namespace Utility.Notifications.Internal
             && area.yMax <= screenHeight;
 
         private static int ScaleFont(int size, float scale) =>
-            Math.Clamp(
-                (int)Math.Round(size * scale, MidpointRounding.AwayFromZero),
-                8,
-                96
-            );
+            Math.Clamp((int)Math.Round(size * scale, MidpointRounding.AwayFromZero), 8, 96);
     }
 }

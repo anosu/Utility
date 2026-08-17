@@ -29,11 +29,7 @@ namespace Utility.Notifications.Internal
 
         internal bool IsDisabled => _disabled;
 
-        internal void Render(
-            IReadOnlyList<ToastItem> active,
-            ToastTheme style,
-            ToastLayout layout
-        )
+        internal void Render(IReadOnlyList<ToastItem> active, ToastTheme style, ToastLayout layout)
         {
             if (_disabled || active.Count == 0)
                 return;
@@ -232,10 +228,7 @@ namespace Utility.Notifications.Internal
 
         private static void DrawCardBackground(float x, float y, float width, float height)
         {
-            float radius = Math.Min(
-                ToastMetrics.CornerRadius,
-                Math.Min(width, height) * 0.5f
-            );
+            float radius = Math.Min(ToastMetrics.CornerRadius, Math.Min(width, height) * 0.5f);
             float band = radius * 0.25f;
             Texture2D texture = Texture2D.whiteTexture;
 
@@ -410,9 +403,7 @@ namespace Utility.Notifications.Internal
                     char.IsHighSurrogate(character)
                     && i + 1 < value.Length
                     && char.IsLowSurrogate(value[i + 1]);
-                int characterWidth = surrogatePair
-                    ? 2
-                    : ToastTextMetrics.ColumnWidth(character);
+                int characterWidth = surrogatePair ? 2 : ToastTextMetrics.ColumnWidth(character);
                 if (column > 0 && column + characterWidth > maxColumns)
                 {
                     result.Append('\n');

@@ -5,10 +5,6 @@ namespace Utility.Notifications.Internal
 {
     internal interface IFrameToastRenderer : IDisposable
     {
-        void RenderFrame(
-            IReadOnlyList<ToastItem> active,
-            ToastTheme style,
-            ToastLayout layout
-        );
+        void RenderFrame(IReadOnlyList<ToastItem> active, ToastTheme style, ToastLayout layout);
     }
 }

@@ -18,8 +18,7 @@ namespace Utility.Notifications.Internal
 
         internal static float ContentLeft => AccentWidth + HorizontalPadding;
         internal static float StretchedContentOffsetX => AccentWidth * 0.5f;
-        internal static float StretchedContentWidthDelta =>
-            -AccentWidth - HorizontalPadding * 2f;
+        internal static float StretchedContentWidthDelta => -AccentWidth - HorizontalPadding * 2f;
 
         internal static float ContentWidth(float cardWidth) =>
             Math.Max(1f, cardWidth - AccentWidth - HorizontalPadding * 2f);
@@ -28,11 +27,7 @@ namespace Utility.Notifications.Internal
             Math.Max(TitleHeight, layout.TitleSize + 4f);
 
         internal static float CalculateTitleBodyGap(ToastLayout layout) =>
-            Math.Clamp(
-                layout.TitleSize * 0.25f,
-                MinimumTitleBodyGap,
-                MaximumTitleBodyGap
-            );
+            Math.Clamp(layout.TitleSize * 0.25f, MinimumTitleBodyGap, MaximumTitleBodyGap);
 
         internal static float CalculateMessageTop(ToastLayout layout) =>
             TopPadding + CalculateTitleHeight(layout) + CalculateTitleBodyGap(layout);

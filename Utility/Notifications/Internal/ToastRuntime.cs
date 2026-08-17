@@ -97,9 +97,7 @@ namespace Utility.Notifications.Internal
 
             try
             {
-                ToastLayout layout = _hasLayout
-                    ? _layout
-                    : ToastLayoutProvider.Calculate(_theme);
+                ToastLayout layout = _hasLayout ? _layout : ToastLayoutProvider.Calculate(_theme);
                 _imguiRenderer.Render(_active, _theme, layout);
             }
             catch (Exception exception)

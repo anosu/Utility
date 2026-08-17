@@ -215,6 +215,17 @@ var font = new AssetBundleLoader<TMP_FontAsset>(bundlePath, "assets/fonts/my-fon
 StartCoroutine(font.Load()); // From the mod's existing MonoBehaviour coroutine host.
 ```
 
+`Load` accepts optional success and error callbacks. Supplying `onError` handles terminal load
+failures without letting them escape through the coroutine; the same exception remains available
+through `LastError`.
+
+```csharp
+StartCoroutine(font.Load(
+    onComplete: () => Toast.Success("Assets", "Font loaded"),
+    onError: exception => Toast.Error("Assets", exception.Message)
+));
+```
+
 MelonLoader-generated namespace with an `Il2Cpp` prefix:
 
 ```csharp

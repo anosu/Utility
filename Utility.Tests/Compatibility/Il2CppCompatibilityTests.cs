@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 using Utility.Notifications;
 using Utility.Notifications.Internal;
@@ -8,9 +9,10 @@ namespace Utility.Tests.Compatibility
     public sealed class Il2CppCompatibilityTests
     {
         [Theory]
-        [InlineData("UnityEngine", "GUIStyleState", "set_background")]
         [InlineData("UnityEngine", "GUI", "DrawTextureWithTexCoords")]
         [InlineData("UnityEngine", "AssetBundle", "GetAllAssetNames")]
+        [InlineData("UnityEngine", "Texture2D", "SetPixel")]
+        [InlineData("UnityEngine", "Texture2D", "Apply")]
         [InlineData("UnityEngine", "Object", "op_Implicit")]
         [InlineData("UnityEngine", "Object", "op_Equality")]
         [InlineData("UnityEngine", "Object", "op_Inequality")]
@@ -35,6 +37,30 @@ namespace Utility.Tests.Compatibility
         public void ImguiRendererSetsExplicitTextColor() =>
             Assert.True(
                 AssemblyMetadata.HasMemberReference("UnityEngine", "GUIStyleState", "set_textColor")
+            );
+
+        [Fact]
+        public void LegacyBoxBackendUsesStyleBackground() =>
+            Assert.True(
+                AssemblyMetadata.HasMemberReference(
+                    "UnityEngine",
+                    "GUIStyleState",
+                    "set_background"
+                )
+            );
+
+        [Theory]
+        [InlineData("Box")]
+        [InlineData("DrawTexture")]
+        [InlineData("Label")]
+        public void ImguiRetainsIndependentDrawingSurfaces(string memberName) =>
+            Assert.True(AssemblyMetadata.HasMemberReference("UnityEngine", "GUI", memberName));
+
+        [Fact]
+        public void ImguiBackgroundFallbackOrderIsStable() =>
+            Assert.Equal(
+                new[] { "Box", "DrawTexture", "None" },
+                Enum.GetNames<ImguiBackgroundBackend>()
             );
 
         [Theory]

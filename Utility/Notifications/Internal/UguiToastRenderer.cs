@@ -5,10 +5,9 @@ using Il2CppInterop.Runtime.InteropTypes;
 using UnityEngine;
 using UnityEngine.UI;
 using Utility.Diagnostics;
-using Utility.Notifications.Internal;
 using UnityObject = UnityEngine.Object;
 
-namespace Utility.Notifications.Ugui
+namespace Utility.Notifications.Internal
 {
     internal sealed class UguiToastRenderer : IFrameToastRenderer
     {
@@ -16,12 +15,10 @@ namespace Utility.Notifications.Ugui
         private readonly float[] _heightCache = new float[ToastRuntime.Capacity];
         private readonly Font _font;
         private readonly GameObject _root;
-        private readonly Sprite? _roundedCardSprite;
 
         internal UguiToastRenderer(Transform host)
         {
             _font = LoadBuiltinFont();
-            _roundedCardSprite = TryLoadRoundedCardSprite();
             _root = CreateUiObject(
                 "Utility.Notifications.uGUI",
                 typeof(RectTransform),
@@ -94,13 +91,21 @@ namespace Utility.Notifications.Ugui
         {
             GameObject root = CreateUiObject(
                 $"Toast.{index}",
-                typeof(RectTransform),
-                typeof(Image)
+                typeof(RectTransform)
             );
             root.transform.SetParent(_root.transform, worldPositionStays: false);
-            Image background = GetRequiredComponent<Image>(root);
-            background.raycastTarget = false;
-            TryApplyRoundedCardSprite(background);
+            var backgroundBands = new Image[ToastMetrics.RoundedBandCount];
+            for (int i = 0; i < backgroundBands.Length; i++)
+            {
+                GameObject bandObject = CreateUiObject(
+                    $"Background.{i}",
+                    typeof(RectTransform),
+                    typeof(Image)
+                );
+                bandObject.transform.SetParent(root.transform, worldPositionStays: false);
+                backgroundBands[i] = GetRequiredComponent<Image>(bandObject);
+                backgroundBands[i].raycastTarget = false;
+            }
 
             GameObject accentObject = CreateUiObject(
                 "Accent",
@@ -121,13 +126,15 @@ namespace Utility.Notifications.Ugui
 
             Text title = CreateText(root.transform, "Title", FontStyle.Bold, TextAnchor.UpperLeft);
             Text body = CreateText(root.transform, "Body", FontStyle.Normal, TextAnchor.UpperLeft);
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            title.verticalOverflow = VerticalWrapMode.Truncate;
             body.horizontalOverflow = HorizontalWrapMode.Wrap;
             body.verticalOverflow = VerticalWrapMode.Truncate;
 
             return new Card(
                 root,
                 GetRequiredComponent<RectTransform>(root),
-                background,
+                backgroundBands,
                 accent,
                 title,
                 body
@@ -181,6 +188,8 @@ namespace Utility.Notifications.Ugui
             card.Rect.anchoredPosition = new Vector2(positionX, positionY);
             card.Rect.sizeDelta = new Vector2(layout.Width, card.Height);
 
+            PositionBackgroundBands(card.BackgroundBands, layout.Width, card.Height);
+
             float accentInset = Math.Min(ToastMetrics.CornerRadius, card.Height * 0.5f);
             RectTransform accentRect = card.Accent.rectTransform;
             accentRect.offsetMin = new Vector2(0f, accentInset);
@@ -217,10 +226,12 @@ namespace Utility.Notifications.Ugui
             if (alpha <= 0f)
                 return;
 
-            card.Background.color = WithAlpha(
+            Color backgroundColor = WithAlpha(
                 style.BackgroundColor,
                 style.BackgroundColor.a * alpha
             );
+            for (int i = 0; i < card.BackgroundBands.Length; i++)
+                card.BackgroundBands[i].color = backgroundColor;
             Color accent = style.Accent(item.Kind);
             card.Accent.color = WithAlpha(accent, accent.a * alpha);
 
@@ -231,6 +242,27 @@ namespace Utility.Notifications.Ugui
             card.Body.text = item.Message;
             card.Body.fontSize = layout.TextSize;
             card.Body.color = WithAlpha(style.TextColor, style.TextColor.a * alpha);
+        }
+
+        private static void PositionBackgroundBands(Image[] bands, float width, float height)
+        {
+            for (int i = 0; i < bands.Length; i++)
+            {
+                ToastMetrics.GetRoundedBand(
+                    width,
+                    height,
+                    i,
+                    out float top,
+                    out float bandHeight,
+                    out float inset
+                );
+                RectTransform rect = bands[i].rectTransform;
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = new Vector2(1f, 1f);
+                rect.pivot = new Vector2(0.5f, 1f);
+                rect.anchoredPosition = new Vector2(0f, -top);
+                rect.sizeDelta = new Vector2(-inset * 2f, bandHeight);
+            }
         }
 
         private static float CalculateHeight(string message, ToastLayout layout)
@@ -283,59 +315,6 @@ namespace Utility.Notifications.Ugui
             );
         }
 
-        private static Sprite? TryLoadRoundedCardSprite()
-        {
-            Exception? lastError = null;
-            string[] candidates = { "UI/Skin/UISprite.psd", "UI/Skin/Background.psd" };
-            for (int i = 0; i < candidates.Length; i++)
-            {
-                try
-                {
-                    UnityObject? asset = Resources.GetBuiltinResource(
-                        Il2CppType.Of<Sprite>(),
-                        candidates[i]
-                    );
-                    Sprite? sprite = asset?.TryCast<Sprite>();
-                    if (!ReferenceEquals(sprite, null))
-                        return sprite;
-                }
-                catch (Exception exception)
-                {
-                    lastError = exception;
-                }
-            }
-
-            const string message =
-                "No built-in sliced UI sprite is available; uGUI cards will use square corners.";
-            if (lastError == null)
-                Logging.Write(LogLevel.Debug, "Toast", message);
-            else
-                Logging.WriteRecoverable(LogLevel.Debug, "Toast", message, lastError);
-            return null;
-        }
-
-        private void TryApplyRoundedCardSprite(Image background)
-        {
-            if (ReferenceEquals(_roundedCardSprite, null))
-                return;
-
-            try
-            {
-                background.sprite = _roundedCardSprite;
-                background.type = Image.Type.Sliced;
-                background.fillCenter = true;
-            }
-            catch (Exception exception)
-            {
-                Logging.WriteRecoverable(
-                    LogLevel.Debug,
-                    "Toast",
-                    "Applying the built-in rounded uGUI sprite failed; using square corners.",
-                    exception
-                );
-            }
-        }
-
         private static GameObject CreateUiObject(string name, params Type[] components)
         {
             var il2CppTypes = new Il2CppSystem.Type[components.Length];
@@ -364,7 +343,7 @@ namespace Utility.Notifications.Ugui
             internal Card(
                 GameObject root,
                 RectTransform rect,
-                Image background,
+                Image[] backgroundBands,
                 Image accent,
                 Text title,
                 Text body
@@ -372,7 +351,7 @@ namespace Utility.Notifications.Ugui
             {
                 Root = root;
                 Rect = rect;
-                Background = background;
+                BackgroundBands = backgroundBands;
                 Accent = accent;
                 Title = title;
                 Body = body;
@@ -380,7 +359,7 @@ namespace Utility.Notifications.Ugui
 
             internal GameObject Root { get; }
             internal RectTransform Rect { get; }
-            internal Image Background { get; }
+            internal Image[] BackgroundBands { get; }
             internal Image Accent { get; }
             internal Text Title { get; }
             internal Text Body { get; }

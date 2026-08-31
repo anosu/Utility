@@ -58,8 +58,8 @@ namespace Utility.Tests.Notifications
                 1f
             );
 
-            Assert.Equal(597.656f, layout.Width, 3);
-            Assert.Equal(147.656f, layout.MinimumHeight, 3);
+            Assert.Equal(597f, layout.Width);
+            Assert.Equal(147f, layout.MinimumHeight);
             Assert.Equal(27, layout.TitleSize);
             Assert.Equal(23, layout.TextSize);
         }
@@ -77,7 +77,7 @@ namespace Utility.Tests.Notifications
                 1.25f
             );
 
-            Assert.Equal(489.6f, layout.Width, 3);
+            Assert.Equal(489f, layout.Width);
             Assert.True(layout.Width < layout.SafeArea.Width * 0.5f);
         }
 
@@ -189,7 +189,31 @@ namespace Utility.Tests.Notifications
             Assert.Equal(18f, ToastMetrics.CompatibilityTitleHeight);
             Assert.Equal(6f, ToastMetrics.CalculateTitleBodyGap(mobile));
             Assert.Equal(49f, ToastMetrics.CalculateMessageTop(mobile));
-            Assert.Equal(6.75f, ToastMetrics.CalculateTitleBodyGap(fullHd));
+            Assert.Equal(7f, ToastMetrics.CalculateTitleBodyGap(fullHd));
+        }
+
+        [Fact]
+        public void RoundedBandsMatchTheImguiCardGeometry()
+        {
+            float[] expectedTops = { 0f, 2f, 4f, 6f, 99f, 101f, 103f };
+            float[] expectedHeights = { 2f, 2f, 2f, 93f, 2f, 2f, 2f };
+            float[] expectedInsets = { 6f, 3f, 1f, 0f, 1f, 3f, 6f };
+
+            Assert.Equal(7, ToastMetrics.RoundedBandCount);
+            for (int i = 0; i < ToastMetrics.RoundedBandCount; i++)
+            {
+                ToastMetrics.GetRoundedBand(
+                    425f,
+                    105f,
+                    i,
+                    out float top,
+                    out float height,
+                    out float inset
+                );
+                Assert.Equal(expectedTops[i], top);
+                Assert.Equal(expectedHeights[i], height);
+                Assert.Equal(expectedInsets[i], inset);
+            }
         }
 
         private static ToastLayout CreateFullHdLayout()

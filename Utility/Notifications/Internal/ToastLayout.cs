@@ -183,12 +183,27 @@ namespace Utility.Notifications.Internal
                 Math.Max(0f, (shortestSide - 1f) * 0.5f)
             );
             float availableWidth = Math.Max(1f, safeArea.Width - margin * 2f);
-            float width = Math.Min(Math.Min(theme.Width * layoutScale, availableWidth), widthLimit);
-            float minimumHeight = Math.Min(
-                theme.MinimumHeight * layoutScale,
-                Math.Max(1f, safeArea.Height - margin * 2f)
+            float width = Math.Max(
+                1f,
+                ToastMetrics.FloorToPixel(
+                    Math.Min(Math.Min(theme.Width * layoutScale, availableWidth), widthLimit)
+                )
             );
-            float gap = Math.Min(theme.Gap * layoutScale, Math.Max(0f, safeArea.Height * 0.1f));
+            float minimumHeight = Math.Max(
+                1f,
+                ToastMetrics.FloorToPixel(
+                    Math.Min(
+                        theme.MinimumHeight * layoutScale,
+                        Math.Max(1f, safeArea.Height - margin * 2f)
+                    )
+                )
+            );
+            float gap = Math.Max(
+                0f,
+                ToastMetrics.RoundToPixel(
+                    Math.Min(theme.Gap * layoutScale, Math.Max(0f, safeArea.Height * 0.1f))
+                )
+            );
             int maximumVisible = CalculateMaximumVisible(
                 theme.MaximumVisible,
                 safeArea.Height,

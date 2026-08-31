@@ -59,21 +59,20 @@ namespace Utility.Tests.Compatibility
         [Fact]
         public void ImguiBackgroundFallbackOrderIsStable() =>
             Assert.Equal(
-                new[] { "Box", "DrawTexture", "None" },
+                new[] { "StyledBox", "DrawTexture", "None" },
                 Enum.GetNames<ImguiBackgroundBackend>()
             );
 
         [Theory]
-        [InlineData("UnityEngine.UI")]
-        [InlineData("UnityEngine.UIModule")]
         [InlineData("TMPro")]
         [InlineData("Il2CppTMPro")]
-        public void CoreAssemblyHasNoHardOptionalDependency(string assemblyName) =>
+        public void CoreAssemblyHasNoTextMeshProDependency(string assemblyName) =>
             Assert.False(AssemblyMetadata.HasAssemblyReference(assemblyName));
 
         [Fact]
-        public void ImguiFailureRetainsOptionalUguiFallback()
+        public void ImguiFailureRetainsBuiltInUguiFallback()
         {
+            Assert.Same(typeof(Toast).Assembly, typeof(UguiToastRenderer).Assembly);
             Assert.NotNull(
                 typeof(ToastRuntime).GetMethod(
                     "QueueUguiFallback",
@@ -84,12 +83,6 @@ namespace Utility.Tests.Compatibility
                 typeof(ToastRuntime).GetMethod(
                     "ActivateUguiFallback",
                     BindingFlags.Instance | BindingFlags.NonPublic
-                )
-            );
-            Assert.NotNull(
-                typeof(OptionalRendererLoader).GetMethod(
-                    "TryCreateUgui",
-                    BindingFlags.Static | BindingFlags.NonPublic
                 )
             );
         }

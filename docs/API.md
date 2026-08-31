@@ -6,16 +6,18 @@ The library does not reference either loader. Both environments use the same ini
 
 ## Installation
 
-Copy `Utility.dll` next to the consuming mod. To enable the optional uGUI fallback, also copy `Utility.Notifications.Ugui.dll` beside it. Do not copy `Il2CppInterop.Runtime.dll` from the build output; the active loader supplies its compatible runtime.
+Copy `Utility.dll` next to the consuming mod. Do not copy `Il2CppInterop.Runtime.dll` from the build output; the active loader supplies its compatible runtime.
 
 The current build targets `net6.0` and requires these Unity modules at runtime:
 
 - `UnityEngine.CoreModule`
 - `UnityEngine.IMGUIModule`
 - `UnityEngine.TextRenderingModule`
+- `UnityEngine.UIModule`
+- `UnityEngine.UI`
 - `UnityEngine.AssetBundleModule` when `AssetBundleLoader` is used
 
-`Utility.Notifications.Ugui.dll` additionally requires `UnityEngine.UIModule` and `UnityEngine.UI`. The core assembly does not reference those modules. Toast prefers IMGUI; it loads the optional assembly only after both styled and compatibility IMGUI rendering fail.
+Toast prefers IMGUI and switches to its built-in uGUI renderer only after the compatible IMGUI drawing paths fail.
 
 The proxies under `Utility/lib/Proxies` are the default local compile-time contract. To validate against another game's generated surface, build with `-p:UnityProxyDir=/path/to/generated/proxies`; optional Unity calls are isolated behind renderer or asset-loading fallback paths, but no runtime-loaded mod can call a native method that the target game removed entirely.
 
@@ -33,14 +35,13 @@ The reorganized interface intentionally removes the legacy compatibility surface
 | `LoadAsync`, `Loading`, `Valid` | `Load`, `IsLoading`, `IsLoaded` |
 | Non-generic asset helper | Explicit generic asset wrapper type |
 | Root logging types | `Utility.Diagnostics` |
-| `Utility.Ugui.dll` | `Utility.Notifications.Ugui.dll` |
+| `Utility.Ugui.dll` / `Utility.Notifications.Ugui.dll` | Merged into `Utility.dll` |
 
 ## Project layout
 
 - `Utility/Assets` contains the loader-neutral AssetBundle module.
 - `Utility/Diagnostics` contains structured host logging.
 - `Utility/Notifications` exposes the toast interface; renderer state and the injected behaviour live under `Internal`.
-- `Utility.Notifications.Ugui` is an optional adapter and is not referenced by the core assembly.
 - `Utility.Tests` mirrors those modules and keeps IL2CPP metadata checks under `Compatibility`.
 - `Directory.Build.props` owns shared compiler, proxy-path, and Il2CppInterop settings.
 
@@ -96,7 +97,7 @@ public override void OnDeinitializeMelon()
 
 ## Notifications
 
-All notification and configuration calls are thread-safe. Unity objects are only mutated from `Update` or `OnGUI` on the main thread. Toast respects `Screen.safeArea` and scales its configured dimensions from a 768-pixel-high reference viewport, up to 1.6x on larger render targets. The card-width limit transitions smoothly between square and 4:3 viewports, reaching 34% of the safe-area width at 4:3 and wider, so desktop 1080p receives a readable size increase without allowing a high-DPI mobile card to approach half the screen. Physical DPI can provide a modest text-only increase of up to 1.25x, but never controls card geometry. The title-to-message gap follows 25% of the final title size and is constrained to 5-8 pixels, keeping mobile and desktop proportions consistent. Cards that no longer fit after an orientation or resolution change return to the waiting queue. Each card keeps its natural height while the complete stack fits; taller cards are reduced only when the stack actually exceeds the safe area. The uGUI and compatibility renderers use a managed width estimate that distinguishes narrow text from CJK, full-width, and surrogate-pair characters. If `Screen.safeArea` or `Screen.dpi` is stripped, the layout falls back to the full screen and viewport-based sizing. If IMGUI fails and `Utility.Notifications.Ugui.dll` is available, Toast creates a high-order overlay `Canvas` with non-interactive `Image` and legacy `Text` components. No `EventSystem` or raycaster is added, so notifications do not intercept game input.
+All notification and configuration calls are thread-safe. Unity objects are only mutated from `Update` or `OnGUI` on the main thread. Toast respects `Screen.safeArea` and scales its configured dimensions from a 768-pixel-high reference viewport, up to 1.6x on larger render targets. The card-width limit transitions smoothly between square and 4:3 viewports, reaching 34% of the safe-area width at 4:3 and wider, so desktop 1080p receives a readable size increase without allowing a high-DPI mobile card to approach half the screen. Physical DPI can provide a modest text-only increase of up to 1.25x, but never controls card geometry. The title-to-message gap follows 25% of the final title size and is constrained to 5-8 pixels, keeping mobile and desktop proportions consistent. Cards that no longer fit after an orientation or resolution change return to the waiting queue. Each card keeps its natural height while the complete stack fits; taller cards are reduced only when the stack actually exceeds the safe area. The uGUI and compatibility renderers use a managed width estimate that distinguishes narrow text from CJK, full-width, and surrogate-pair characters. If `Screen.safeArea` or `Screen.dpi` is stripped, the layout falls back to the full screen and viewport-based sizing. If IMGUI fails, Toast creates a high-order overlay `Canvas` with non-interactive `Image` and legacy `Text` components from the same assembly. No `EventSystem` or raycaster is added, so notifications do not intercept game input.
 
 ```csharp
 Toast.Info("Info", "Configuration loaded");

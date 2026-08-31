@@ -124,8 +124,9 @@ namespace Utility.Notifications.Internal
             _backendError = null;
             _hasLayout = false;
             _uguiFallbackPending = false;
+
             _imguiRenderer = new ImguiToastRenderer();
-            Logging.Write(LogLevel.Information, "Toast", "Using the preferred IMGUI renderer.");
+            Logging.Write(LogLevel.Information, "Toast", "Using the IMGUI renderer.");
         }
 
         internal void DetachRenderer()
@@ -215,12 +216,6 @@ namespace Utility.Notifications.Internal
             _imguiRenderer = null;
             _backendError = exception;
             _uguiFallbackPending = true;
-            Logging.WriteRecoverable(
-                LogLevel.Warning,
-                "Toast",
-                "IMGUI rendering failed; queued the optional uGUI fallback.",
-                exception
-            );
         }
 
         private void ActivateUguiFallback()
@@ -229,24 +224,25 @@ namespace Utility.Notifications.Internal
             if (ReferenceEquals(_host, null))
                 return;
 
-            _frameRenderer = OptionalRendererLoader.TryCreateUgui(_host, out Exception? error);
-            if (_frameRenderer != null)
+            try
             {
+                _frameRenderer = new UguiToastRenderer(_host);
                 Logging.Write(
                     LogLevel.Warning,
                     "Toast",
-                    "Switched from IMGUI to the optional uGUI renderer."
+                    "Switched from IMGUI to the uGUI renderer."
                 );
                 return;
             }
-
-            if (error != null)
-                _backendError = CombineBackendErrors(_backendError, error);
+            catch (Exception exception)
+            {
+                _backendError = CombineBackendErrors(_backendError, exception);
+            }
 
             Logging.Write(
                 LogLevel.Error,
                 "Toast",
-                "IMGUI failed and the optional uGUI fallback could not be initialized.",
+                "IMGUI failed and the uGUI fallback could not be initialized.",
                 _backendError
             );
         }

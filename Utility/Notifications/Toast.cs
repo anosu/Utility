@@ -21,8 +21,8 @@ namespace Utility.Notifications
 
         /// <summary>Gets the renderer currently selected by the toast system.</summary>
         /// <remarks>
-        /// The value can change from <see cref="ToastRendererKind.Imgui"/> to
-        /// <see cref="ToastRendererKind.Ugui"/> if both IMGUI paths fail at runtime.
+        /// IMGUI is preferred and falls back to the built-in uGUI renderer when its compatible
+        /// drawing paths fail.
         /// </remarks>
         public static ToastRendererKind Renderer => ToastRuntime.Shared.RendererKind;
 

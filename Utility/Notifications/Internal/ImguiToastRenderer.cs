@@ -8,7 +8,7 @@ namespace Utility.Notifications.Internal
 {
     internal enum ImguiBackgroundBackend
     {
-        Box,
+        StyledBox,
         DrawTexture,
         None,
     }
@@ -34,7 +34,7 @@ namespace Utility.Notifications.Internal
         private int _textSize = -1;
         private int _titleSize = -1;
         private Exception? _backgroundError;
-        private ImguiBackgroundBackend _backgroundBackend = ImguiBackgroundBackend.Box;
+        private ImguiBackgroundBackend _backgroundBackend = ImguiBackgroundBackend.StyledBox;
 
         internal Exception? LastError { get; private set; }
 
@@ -243,7 +243,7 @@ namespace Utility.Notifications.Internal
                 {
                     switch (_backgroundBackend)
                     {
-                        case ImguiBackgroundBackend.Box:
+                        case ImguiBackgroundBackend.StyledBox:
                             DrawBoxSurface(item, style, x, y, width, height, alpha);
                             return;
                         case ImguiBackgroundBackend.DrawTexture:
@@ -258,24 +258,25 @@ namespace Utility.Notifications.Internal
                 catch (Exception exception)
                 {
                     _backgroundError = CombineBackgroundErrors(_backgroundError, exception);
-                    if (_backgroundBackend == ImguiBackgroundBackend.Box)
+                    if (_backgroundBackend == ImguiBackgroundBackend.StyledBox)
                     {
                         _backgroundBackend = ImguiBackgroundBackend.DrawTexture;
                         _boxStyle = null;
                         Logging.WriteRecoverable(
                             LogLevel.Warning,
                             "Toast",
-                            "GUI.Box background rendering failed; trying GUI.DrawTexture.",
+                            "Styled GUI.Box background rendering failed; trying GUI.DrawTexture.",
                             exception
                         );
                         continue;
                     }
 
                     _backgroundBackend = ImguiBackgroundBackend.None;
+                    _disabled = true;
                     Logging.WriteRecoverable(
                         LogLevel.Warning,
                         "Toast",
-                        "GUI.DrawTexture background rendering failed; using labels without a background.",
+                        "GUI.DrawTexture background rendering failed; disabling IMGUI.",
                         exception
                     );
                     return;
@@ -350,73 +351,43 @@ namespace Utility.Notifications.Internal
             GUIStyle style
         )
         {
-            float radius = Math.Min(ToastMetrics.CornerRadius, Math.Min(width, height) * 0.5f);
-            float band = radius * 0.25f;
-
-            DrawHorizontalBoxBand(x, y, width, style, 0f, band, radius * 0.75f);
-            DrawHorizontalBoxBand(x, y, width, style, band, band, radius * 0.375f);
-            DrawHorizontalBoxBand(x, y, width, style, band * 2f, band, radius * 0.125f);
-            GUI.Box(new Rect(x, y + band * 3f, width, height - band * 6f), string.Empty, style);
-            DrawHorizontalBoxBand(x, y, width, style, height - band * 3f, band, radius * 0.125f);
-            DrawHorizontalBoxBand(x, y, width, style, height - band * 2f, band, radius * 0.375f);
-            DrawHorizontalBoxBand(x, y, width, style, height - band, band, radius * 0.75f);
+            for (int i = 0; i < ToastMetrics.RoundedBandCount; i++)
+            {
+                ToastMetrics.GetRoundedBand(
+                    width,
+                    height,
+                    i,
+                    out float top,
+                    out float bandHeight,
+                    out float inset
+                );
+                GUI.Box(
+                    new Rect(x + inset, y + top, width - inset * 2f, bandHeight),
+                    string.Empty,
+                    style
+                );
+            }
         }
-
-        private static void DrawHorizontalBoxBand(
-            float x,
-            float y,
-            float width,
-            GUIStyle style,
-            float yOffset,
-            float height,
-            float inset
-        ) =>
-            GUI.Box(
-                new Rect(x + inset, y + yOffset, width - inset * 2f, height),
-                string.Empty,
-                style
-            );
 
         private static void DrawRoundedTexture(float x, float y, float width, float height)
         {
-            float radius = Math.Min(ToastMetrics.CornerRadius, Math.Min(width, height) * 0.5f);
-            float band = radius * 0.25f;
             Texture2D texture = Texture2D.whiteTexture;
-
-            DrawHorizontalTextureBand(x, y, width, texture, 0f, band, radius * 0.75f);
-            DrawHorizontalTextureBand(x, y, width, texture, band, band, radius * 0.375f);
-            DrawHorizontalTextureBand(x, y, width, texture, band * 2f, band, radius * 0.125f);
-            GUI.DrawTexture(new Rect(x, y + band * 3f, width, height - band * 6f), texture);
-            DrawHorizontalTextureBand(
-                x,
-                y,
-                width,
-                texture,
-                height - band * 3f,
-                band,
-                radius * 0.125f
-            );
-            DrawHorizontalTextureBand(
-                x,
-                y,
-                width,
-                texture,
-                height - band * 2f,
-                band,
-                radius * 0.375f
-            );
-            DrawHorizontalTextureBand(x, y, width, texture, height - band, band, radius * 0.75f);
+            for (int i = 0; i < ToastMetrics.RoundedBandCount; i++)
+            {
+                ToastMetrics.GetRoundedBand(
+                    width,
+                    height,
+                    i,
+                    out float top,
+                    out float bandHeight,
+                    out float inset
+                );
+                GUI.DrawTexture(
+                    new Rect(x + inset, y + top, width - inset * 2f, bandHeight),
+                    texture
+                );
+            }
         }
-
-        private static void DrawHorizontalTextureBand(
-            float x,
-            float y,
-            float width,
-            Texture2D texture,
-            float yOffset,
-            float height,
-            float inset
-        ) => GUI.DrawTexture(new Rect(x + inset, y + yOffset, width - inset * 2f, height), texture);
 
         private static Exception CombineBackgroundErrors(Exception? first, Exception second) =>
             first == null

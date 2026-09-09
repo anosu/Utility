@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <SharedDependencyMode Condition="'$(SharedDependencyMode)' == ''">pinned</SharedDependencyMode>
+    <SharedDependencyBuildRoot Condition="'$(SharedDependencyBuildRoot)' == ''">$(ModRepositoryRoot)artifacts/shared/$(SharedDependencyMode)/</SharedDependencyBuildRoot>
+    <ExtensionProjectPath Condition="'$(UseExtension)' == 'true' and '$(ExtensionProjectPath)' == ''">$(ModRepositoryRoot)shared/Extension/Extension.csproj</ExtensionProjectPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(UtilityProjectPath)" Private="true"
+                      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+                      GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath" />
+    <ProjectReference Include="$(ExtensionProjectPath)" Condition="'$(UseExtension)' == 'true'" Private="true"
+                      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+                      GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath" />
+  </ItemGroup>
+  <Target Name="ValidateSharedProjects" BeforeTargets="ResolveProjectReferences">
+    <Error Condition="!Exists('$(UtilityProjectPath)')" Text="Utility source is missing. Run git submodule update --init --recursive, or configure SharedDependencies.local.props." />
+    <Error Condition="'$(UseExtension)' == 'true' and !Exists('$(ExtensionProjectPath)')" Text="Extension source is missing. Initialize the private submodule using a GitHub account with access, or configure SharedDependencies.local.props." />
+  </Target>
+</Project>

@@ -34,7 +34,8 @@ namespace Utility.Notifications.Internal
             float gap,
             int maximumVisible,
             int titleSize,
-            int textSize
+            int textSize,
+            float spacingScale = 1f
         )
         {
             SafeArea = safeArea;
@@ -47,6 +48,7 @@ namespace Utility.Notifications.Internal
             MaximumVisible = maximumVisible;
             TitleSize = titleSize;
             TextSize = textSize;
+            SpacingScale = spacingScale;
         }
 
         internal ToastSafeArea SafeArea { get; }
@@ -59,6 +61,11 @@ namespace Utility.Notifications.Internal
         internal int MaximumVisible { get; }
         internal int TitleSize { get; }
         internal int TextSize { get; }
+        internal float SpacingScale { get; }
+        internal float AccentWidth => ToastMetrics.RoundToPixel(4.8f * SpacingScale);
+        internal float CornerRadius => ToastMetrics.RoundToPixel(8f * SpacingScale);
+        internal float ContentInset => ToastMetrics.RoundToPixel(12f * SpacingScale);
+        internal float VerticalInset => ToastMetrics.CalculateVerticalInset(SpacingScale);
         internal float AvailableHeight => Math.Max(1f, SafeArea.Height - Margin * 2f);
 
         internal void FitCardHeights(float[] heights, int count)
@@ -141,6 +148,7 @@ namespace Utility.Notifications.Internal
         private const float MaximumLayoutScale = 1.6f;
         private const float MaximumTextScale = 1.25f;
         private const float ReferenceHeight = 768f;
+        private const float AndroidReferenceShortSide = 480f;
         private const float ReferenceTextDpi = 320f;
 
         private static bool _dpiUnavailable;
@@ -151,8 +159,9 @@ namespace Utility.Notifications.Internal
             int screenWidth = Math.Max(1, Screen.width);
             int screenHeight = Math.Max(1, Screen.height);
             ToastSafeArea safeArea = ReadSafeArea(screenWidth, screenHeight);
-            float textScale = ReadTextScale();
-            return Calculate(theme, safeArea, screenWidth, screenHeight, textScale);
+            bool isAndroid = ToastPlatform.IsAndroid;
+            float textScale = isAndroid ? 1f : ReadTextScale();
+            return Calculate(theme, safeArea, screenWidth, screenHeight, textScale, isAndroid);
         }
 
         internal static ToastLayout Calculate(
@@ -160,7 +169,8 @@ namespace Utility.Notifications.Internal
             ToastSafeArea safeArea,
             int screenWidth,
             int screenHeight,
-            float textScale
+            float textScale,
+            bool isAndroid = false
         )
         {
             screenWidth = Math.Max(1, screenWidth);
@@ -168,15 +178,19 @@ namespace Utility.Notifications.Internal
             textScale = float.IsFinite(textScale)
                 ? Math.Clamp(textScale, 1f, MaximumTextScale)
                 : 1f;
-            float heightScale = Math.Clamp(
-                safeArea.Height / ReferenceHeight,
-                1f,
-                MaximumLayoutScale
-            );
+            // Android games can render below the panel resolution. A pixel/DPI floor
+            // or a fixed scale ceiling changes physical text size between those games.
+            float heightScale = isAndroid
+                ? Math.Min(screenWidth, screenHeight) / AndroidReferenceShortSide
+                : Math.Clamp(safeArea.Height / ReferenceHeight, 1f, MaximumLayoutScale);
             float widthLimit = CalculateWidthLimit(safeArea);
 
             float widthScaleLimit = theme.Width > 0f ? widthLimit / theme.Width : 1f;
             float layoutScale = Math.Min(heightScale, Math.Max(1f, widthScaleLimit));
+            float spacingScale = isAndroid ? heightScale : 1f;
+            float fontScale = isAndroid ? heightScale * 0.85f : Math.Max(layoutScale, textScale);
+            int titleSize = ScaleFont(theme.TitleSize, fontScale, isAndroid);
+            int textSize = ScaleFont(theme.TextSize, fontScale, isAndroid);
             float shortestSide = Math.Min(safeArea.Width, safeArea.Height);
             float margin = Math.Min(
                 theme.Margin * layoutScale,
@@ -193,7 +207,16 @@ namespace Utility.Notifications.Internal
                 1f,
                 ToastMetrics.FloorToPixel(
                     Math.Min(
-                        theme.MinimumHeight * layoutScale,
+                        isAndroid
+                            ? Math.Max(
+                                theme.MinimumHeight * layoutScale,
+                                ToastMetrics.CalculateMinimumTextHeight(
+                                    titleSize,
+                                    textSize,
+                                    spacingScale
+                                )
+                            )
+                            : theme.MinimumHeight * layoutScale,
                         Math.Max(1f, safeArea.Height - margin * 2f)
                     )
                 )
@@ -221,8 +244,9 @@ namespace Utility.Notifications.Internal
                 margin,
                 gap,
                 maximumVisible,
-                ScaleFont(theme.TitleSize, Math.Max(layoutScale, textScale)),
-                ScaleFont(theme.TextSize, Math.Max(layoutScale, textScale))
+                titleSize,
+                textSize,
+                spacingScale
             );
         }
 
@@ -321,7 +345,11 @@ namespace Utility.Notifications.Internal
             && area.xMax <= screenWidth
             && area.yMax <= screenHeight;
 
-        private static int ScaleFont(int size, float scale) =>
-            Math.Clamp((int)Math.Round(size * scale, MidpointRounding.AwayFromZero), 8, 96);
+        private static int ScaleFont(int size, float scale, bool isAndroid) =>
+            Math.Clamp(
+                (int)Math.Round(size * scale, MidpointRounding.AwayFromZero),
+                isAndroid ? 1 : 8,
+                isAndroid ? 512 : 96
+            );
     }
 }

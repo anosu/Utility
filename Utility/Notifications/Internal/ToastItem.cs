@@ -20,8 +20,34 @@ namespace Utility.Notifications.Internal
         internal float Remaining { get; set; }
         internal string? CompatibilityMessage { get; set; }
         internal int CompatibilityCharacters { get; set; }
-        internal int CompatibilityLineCount { get; set; }
         internal bool Expired => Remaining <= 0f;
+
+        private object? _titleMeasurementOwner;
+        private float _titleWidth;
+        private int _titleSize;
+        private string? _displayTitle;
+
+        internal string GetDisplayTitle(
+            float width,
+            int size,
+            object owner,
+            Func<string, float> measure
+        )
+        {
+            if (
+                _displayTitle == null
+                || !ReferenceEquals(owner, _titleMeasurementOwner)
+                || _titleWidth != width
+                || _titleSize != size
+            )
+            {
+                _displayTitle = ToastTextMetrics.FitTitle(Title, width, measure);
+                _titleMeasurementOwner = owner;
+                _titleWidth = width;
+                _titleSize = size;
+            }
+            return _displayTitle;
+        }
 
         internal float Alpha
         {

@@ -17,9 +17,9 @@ The current build targets `net6.0` and requires these Unity modules at runtime:
 - `UnityEngine.UI`
 - `UnityEngine.AssetBundleModule` when `AssetBundleLoader` is used
 
-Toast prefers IMGUI and switches to its built-in uGUI renderer only after the compatible IMGUI drawing paths fail.
+Toast prefers IMGUI and switches to its built-in uGUI renderer if IMGUI drawing or explicit font sizing fails. Both renderers use the same font selection.
 
-The proxies under `Utility/lib/Proxies` are the default local compile-time contract. To validate against another game's generated surface, build with `-p:UnityProxyDir=/path/to/generated/proxies`; optional Unity calls are isolated behind renderer or asset-loading fallback paths, but no runtime-loaded mod can call a native method that the target game removed entirely.
+The proxies under `dependencies/interop` are the default local compile-time contract. To validate against another game's generated surface, build with `-p:UnityProxyDir=/path/to/generated/proxies`; optional Unity calls are isolated behind renderer or asset-loading fallback paths, but no runtime-loaded mod can call a native method that the target game removed entirely.
 
 ## Breaking changes
 
@@ -43,6 +43,7 @@ The reorganized interface intentionally removes the legacy compatibility surface
 - `Utility/Diagnostics` contains structured host logging.
 - `Utility/Notifications` exposes the toast interface; renderer state and the injected behaviour live under `Internal`.
 - `Utility.Tests` mirrors those modules and keeps IL2CPP metadata checks under `Compatibility`.
+- `Utility.Lifecycle.Tests` runs the production loading coroutines and toast lifecycle callbacks against controlled Unity substitutes.
 - `Directory.Build.props` owns shared compiler, proxy-path, and Il2CppInterop settings.
 
 ## Toast lifecycle
@@ -57,6 +58,8 @@ Toast.Success("Utility", "Loaded successfully");
 ```
 
 Call `Toast.Shutdown()` from the loader's main-thread unload callback.
+
+Shutdown immediately detaches the active behaviour. Calling `Initialize` again in the same frame is supported; callbacks from the old behaviour are ignored while Unity finishes its deferred destruction.
 
 ```csharp
 Toast.Shutdown();
@@ -97,7 +100,17 @@ public override void OnDeinitializeMelon()
 
 ## Notifications
 
-All notification and configuration calls are thread-safe. Unity objects are only mutated from `Update` or `OnGUI` on the main thread. Toast respects `Screen.safeArea` and scales its configured dimensions from a 768-pixel-high reference viewport, up to 1.6x on larger render targets. The card-width limit transitions smoothly between square and 4:3 viewports, reaching 34% of the safe-area width at 4:3 and wider, so desktop 1080p receives a readable size increase without allowing a high-DPI mobile card to approach half the screen. Physical DPI can provide a modest text-only increase of up to 1.25x, but never controls card geometry. The title-to-message gap follows 25% of the final title size and is constrained to 5-8 pixels, keeping mobile and desktop proportions consistent. Cards that no longer fit after an orientation or resolution change return to the waiting queue. Each card keeps its natural height while the complete stack fits; taller cards are reduced only when the stack actually exceeds the safe area. The uGUI and compatibility renderers use a managed width estimate that distinguishes narrow text from CJK, full-width, and surrogate-pair characters. If `Screen.safeArea` or `Screen.dpi` is stripped, the layout falls back to the full screen and viewport-based sizing. If IMGUI fails, Toast creates a high-order overlay `Canvas` with non-interactive `Image` and legacy `Text` components from the same assembly. No `EventSystem` or raycaster is added, so notifications do not intercept game input.
+All notification and configuration calls are thread-safe. Unity objects are only mutated from `Update` or `OnGUI` on the main thread.
+
+On Android, configured sizes use a reference viewport with a 480-pixel short side, with a 0.85 multiplier for text. Text scales with the render target's short side, independently of the card-width limit, reported DPI, and screen orientation. For example, the default 16-unit body text renders at 20, 31, and 41 pixels on 720-, 1080-, and 1440-pixel short sides. This keeps its screen proportion consistent when games on the same phone use different render resolutions. Desktop retains the 768-pixel reference height, 1.6x layout ceiling, and optional DPI text increase of up to 1.25x.
+
+Both renderers use symmetric text insets: 12 reference units from each side of the card, and 8 above and below the content. Android scales these insets and the title spacing with the short side as well, so text does not crowd the card edge at higher resolutions. At a 1080-pixel short side, horizontal insets are 27 pixels and vertical insets are 18 pixels. Titles and messages share the same horizontal bounds, and wrapping and card-height calculations use these same insets. Corner radius (8 reference units) and accent width (4.8 reference units) also scale with the Android short side, using the same non-overlapping background bands in both renderers.
+
+IMGUI and uGUI share an explicit font. Android first requests system sans-serif families in a fixed order (Noto Sans CJK SC, Noto Sans CJK JP, Noto Sans SC, Noto Sans, Roboto, sans-serif). If dynamic font creation is unavailable, both renderers try `LegacyRuntime.ttf`, then `Arial.ttf`. Font availability and glyph coverage still depend on the device and Unity build; the library does not bundle a font. Font selection is logged once when loaded, and owned dynamic fonts are released on shutdown. IMGUI isolates and restores the drawing matrix, GUI colors, background tint, and enabled state. All backends use background alpha `0.94 × animationAlpha`, without inheriting a game's IMGUI background tint. If it cannot set the font or size, Toast switches to uGUI instead of displaying unstyled labels with the game's default small font. uGUI disables automatic text shrinking and rich-text interpretation.
+
+Toast respects `Screen.safeArea`; card width transitions smoothly between square and 4:3 viewports, reaching 34% of the safe-area width at 4:3 and wider. The title-to-message gap follows 12.5% of the final title size, constrained to 2-4 reference units (scaled on Android). Title height follows the font size without an additional fixed minimum. Title bounds and estimated body line heights reserve 1.5 times the font size for taller CJK glyphs. Cards that no longer fit after an orientation or resolution change return to the waiting queue. Each card keeps its natural height while the complete stack fits; taller cards are reduced only when the stack exceeds the safe area. IMGUI uses `GUIStyle.CalcHeight`, and uGUI uses `Text.preferredHeight` after setting the content width and font size. If a measurement API is unavailable, that renderer caches the failure and uses the shared managed line estimate. All title paths use bold text and the same single-line ellipsis rule, preserving Unicode text elements. Title widths use native measurement where available, with a managed estimate as fallback. uGUI body measurements and formatted titles are cached until their inputs change. A stripped `Screen.safeArea` falls back to the full screen; a stripped desktop `Screen.dpi` falls back to viewport-based sizing.
+
+The uGUI fallback creates a high-order overlay `Canvas` with non-interactive `Image` and legacy `Text` components. No `EventSystem` or raycaster is added, so notifications do not intercept game input.
 
 ```csharp
 Toast.Info("Info", "Configuration loaded");
@@ -111,6 +124,7 @@ Toast.Clear();
 ```
 
 The queue accepts at most 50 notifications. `Show` returns `false` when it is full.
+`Clear` discards obsolete pending notifications while retaining configuration. Pending configuration updates are merged, preserving the last valid value for each setting, so repeated configuration or clearing before the next frame does not grow the command queue indefinitely.
 If the styled renderer degrades or is disabled, `Toast.LastRenderError` exposes the exception without allowing it to escape through the IL2CPP `OnGUI` trampoline.
 
 `Toast.Renderer` reports the active backend as `ToastRendererKind.Ugui`, `ToastRendererKind.Imgui`, or `ToastRendererKind.None`. It starts as `Imgui` and changes to `Ugui` after a successful fallback. While a fallback is pending, or after every backend fails, it reports `None`.
@@ -137,7 +151,7 @@ Toast.Configure(
 );
 ```
 
-`minimumHeight` is the card's lower height bound; longer wrapped messages can make a card taller.
+`minimumHeight` is the card's lower height bound; longer wrapped messages can make a card taller. Android also reserves room for a title and one body line when determining how many cards fit, so larger configured fonts reduce the visible count before single-line messages get clipped.
 
 Setting `maximumVisible` to `0` pauses display without expiring waiting notifications. Set it to a positive value to resume. The default is `4`; the effective value can be lower when the current safe area cannot fit that many minimum-height cards. The injected `ToastBehaviour` is internal; callers only use the static `Toast` interface.
 
@@ -247,19 +261,19 @@ var font = new AssetBundleLoader<TMP_FontAsset>(bundlePath);
 
 It uses `LoadAllAssets(Il2CppType.Of<UnityEngine.Object>())` and then falls back to the matching explicit-type `LoadAllAssetsAsync` path. This avoids the parameterless wrappers and keeps both paths consistent. Each attempt is isolated because stripped players may retain only one of them. It never calls `GetAllAssetNames()`. The explicit asset-name constructor remains the recommended path for maximum compatibility.
 
-`Load` always resets `IsLoading` and unloads an acquired bundle from its iterator `finally` block, including when the coroutine is disposed early or a Unity wrapper throws. `IsLoaded` reports whether a managed asset wrapper was loaded; it deliberately does not invoke Unity's native object truthiness operators.
+Run and dispose the `Load` iterator on Unity's main thread. Its `finally` block resets `IsLoading` and unloads an acquired bundle, including when the iterator is disposed early or a Unity wrapper throws. Disposing while `LoadFromFileAsync` is pending retrieves its result synchronously before unloading it; this can wait for native loading to finish. Stopping a coroutine must also dispose its iterator for this cleanup to run. An asset is published only after persistence setup succeeds, so a setup failure leaves `IsLoaded` false and permits a later retry. `IsLoaded` deliberately avoids Unity's native object truthiness operators.
 
 ## IL2CPP stripping
 
-The injected `ToastBehaviour` contains only the native-pointer constructor and Unity lifecycle messages. Queues, nullable configuration, and rendering state stay in ordinary managed classes and are not exposed during class injection.
+Only the native-pointer constructor and Unity lifecycle messages of `ToastBehaviour` are exposed during class injection. Its managed detach helper is marked `HideFromIl2Cpp`. Queues, nullable configuration, and rendering state stay in ordinary managed classes.
 
-The optional uGUI renderer is loaded through a small internal contract only after IMGUI becomes unusable, keeping `UnityEngine.UI` out of `Utility.dll` metadata. It uses `LegacyRuntime.ttf` with an `Arial.ttf` fallback, lazily creates and reuses card objects, and uses Unity's built-in sliced `UISprite` for rounded card corners. A missing cosmetic sprite only produces square cards. If this final fallback also fails, rendering is disabled without retrying either backend every frame.
+The uGUI fallback is part of `Utility.dll` and requires the Unity UI modules. It shares the font provider with IMGUI, lazily creates and reuses card objects, and builds rounded card backgrounds from `Image` bands. Titles and bodies wrap inside their text rectangles and truncate vertically, preventing long titles from extending beyond the card. If this final fallback also fails, rendering is disabled without retrying either backend every frame.
 
 The IMGUI renderer uses `Texture2D.whiteTexture` rather than creating and populating a texture at runtime. This removes image conversion and per-pixel texture methods from the required surface.
 
-IMGUI background rendering has three cached levels with independent Unity call surfaces. It first uses the legacy `GUI.Box` plus `GUIStyleState.background` path, constructing rounded bands from the built-in white texture without creating a custom texture. If either the style setter or `GUI.Box` is stripped, it tries `GUI.DrawTexture`; if that overload chain is also unavailable, it keeps rendering labels without a background. Styled typography degrades independently: compatibility IMGUI probes `fontSize` separately from `fontStyle`, and finally uses the parameterless-style `GUI.Label` overload when GUIStyle-based labels fail. Only failure of the bare-label path queues the optional uGUI renderer. Each failed capability is cached for the renderer lifetime, so stripped methods are not retried per frame or per notification.
+IMGUI backgrounds first use `GUI.Box` with `GUIStyleState.background`, then try `GUI.DrawTexture` if the first path fails. Failure of both disables IMGUI and queues uGUI. Styled typography can fall back to simpler GUIStyle-based labels, which still require an explicit font, font size, and clipping. It does not fall back to unstyled labels or allow text to escape the card. Failed capabilities are cached for the renderer lifetime.
 
-A mod cannot restore a Unity method that the game developer already removed from `GameAssembly`. `link.xml` shipped with a runtime-loaded mod cannot change that. Toast can operate when at least one complete backend remains: uGUI requires the Unity UI modules and a built-in legacy font, while IMGUI requires its GUI and text-rendering surface.
+A mod cannot restore a Unity method that the game developer already removed from `GameAssembly`. `link.xml` shipped with a runtime-loaded mod cannot change that. Toast requires at least one complete backend and a usable dynamic or built-in font: uGUI needs the Unity UI modules, while IMGUI needs its GUI and text-rendering surface.
 
 ## Verification
 
@@ -268,4 +282,4 @@ dotnet build Utility.sln -c Release
 dotnet test Utility.sln -c Release --no-build
 ```
 
-The tests inspect `Utility.dll` metadata and reject known-dangerous references, including Unity object truthiness operators, `DrawTextureWithTexCoords`, and `GetAllAssetNames`. They verify that the three IMGUI drawing surfaces (`GUI.Box`, `GUI.DrawTexture`, and `GUI.Label`) remain present in the intended order, that the core has no hard Unity UI dependency, that final IMGUI failure retains the optional uGUI fallback, and that all AssetBundle fallback paths remain present. Pure managed layout tests cover safe-area constraints, smooth orientation transitions, mixed natural card heights, shared renderer metrics, CJK text width, CRLF, and surrogate pairs.
+The metadata tests reject known-dangerous references, including Unity object truthiness operators, `DrawTextureWithTexCoords`, and `GetAllAssetNames`. They check IMGUI drawing references, absence of a concrete TextMeshPro dependency, and retention of uGUI and AssetBundle fallback paths. Managed tests cover layout, text estimates, and bounded command processing. Lifecycle tests link the production sources and simulate delayed destruction, cancellation during bundle/asset requests, and persistence failures followed by retries. These substitutes verify managed control flow; Android rendering, glyph coverage, and native loading behavior still require device validation.

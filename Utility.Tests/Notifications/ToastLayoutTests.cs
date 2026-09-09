@@ -8,6 +8,96 @@ namespace Utility.Tests.Notifications
 {
     public sealed class ToastLayoutTests
     {
+        [Theory]
+        [InlineData(240)]
+        [InlineData(360)]
+        [InlineData(480)]
+        [InlineData(720)]
+        [InlineData(1080)]
+        [InlineData(1440)]
+        [InlineData(2160)]
+        public void AndroidTextRemainsReadableAcrossGameRenderResolutions(int shortSide)
+        {
+            ToastLayout layout = ToastLayoutProvider.Calculate(
+                CreateTheme(),
+                new ToastSafeArea(0f, 0f, shortSide * 2f, shortSide),
+                shortSide * 2,
+                shortSide,
+                1f,
+                isAndroid: true
+            );
+
+            // Keep the smaller typography and its surrounding space proportional when
+            // another game on the same phone renders at half or twice the resolution.
+            Assert.InRange(Math.Abs(layout.TextSize - shortSide / 30f * 0.85f), 0f, 0.5f);
+            Assert.InRange(Math.Abs(layout.TitleSize - shortSide * 19f / 480f * 0.85f), 0f, 0.5f);
+            Assert.InRange(Math.Abs(layout.ContentInset - shortSide / 40f), 0f, 0.5f);
+            Assert.InRange(Math.Abs(layout.VerticalInset - shortSide / 60f), 0f, 0.5f);
+            Assert.InRange(Math.Abs(layout.AccentWidth - shortSide / 100f), 0f, 0.5f);
+            Assert.InRange(Math.Abs(layout.CornerRadius - shortSide / 60f), 0f, 0.5f);
+            Assert.Equal(
+                layout.Width,
+                ToastMetrics.ContentWidth(layout) + layout.ContentInset * 2f
+            );
+        }
+
+        [Fact]
+        public void AndroidRotationAndReportedDpiDoNotChangeTextSize()
+        {
+            ToastTheme theme = CreateTheme();
+            ToastLayout landscape = ToastLayoutProvider.Calculate(
+                theme,
+                new ToastSafeArea(0f, 0f, 2400f, 1080f),
+                2400,
+                1080,
+                1f,
+                true
+            );
+            ToastLayout portrait = ToastLayoutProvider.Calculate(
+                theme,
+                new ToastSafeArea(0f, 0f, 1080f, 2400f),
+                1080,
+                2400,
+                1.25f,
+                true
+            );
+
+            Assert.Equal(landscape.TextSize, portrait.TextSize);
+            Assert.Equal(landscape.TitleSize, portrait.TitleSize);
+            Assert.Equal(landscape.ContentInset, portrait.ContentInset);
+            Assert.Equal(landscape.VerticalInset, portrait.VerticalInset);
+        }
+
+        [Theory]
+        [InlineData(240)]
+        [InlineData(480)]
+        [InlineData(1080)]
+        public void AndroidStackLeavesRoomForATitleAndOneBodyLine(int shortSide)
+        {
+            ToastTheme theme = CreateTheme();
+            theme.TitleSize = 38;
+            theme.TextSize = 32;
+            ToastLayout layout = ToastLayoutProvider.Calculate(
+                theme,
+                new ToastSafeArea(0f, 0f, shortSide * 2f, shortSide),
+                shortSide * 2,
+                shortSide,
+                1f,
+                true
+            );
+            float cardHeight =
+                ToastMetrics.CalculateMessageTop(layout)
+                + ToastMetrics.CalculateLineHeight(layout.TextSize)
+                + layout.VerticalInset;
+            float[] heights = new float[layout.MaximumVisible];
+            Array.Fill(heights, cardHeight);
+
+            layout.FitCardHeights(heights, heights.Length);
+
+            foreach (float height in heights)
+                Assert.True(height >= cardHeight);
+        }
+
         [Fact]
         public void NarrowSafeAreaConstrainsCardWidthAndPosition()
         {
@@ -181,15 +271,13 @@ namespace Utility.Tests.Notifications
             );
             ToastLayout fullHd = CreateFullHdLayout();
 
-            Assert.Equal(18f, ToastMetrics.ContentLeft);
-            Assert.Equal(395f, ToastMetrics.ContentWidth(425f));
-            Assert.Equal(3f, ToastMetrics.StretchedContentOffsetX);
-            Assert.Equal(-30f, ToastMetrics.StretchedContentWidthDelta);
-            Assert.Equal(37f, ToastMetrics.CompatibilityMessageTop);
-            Assert.Equal(18f, ToastMetrics.CompatibilityTitleHeight);
-            Assert.Equal(6f, ToastMetrics.CalculateTitleBodyGap(mobile));
-            Assert.Equal(49f, ToastMetrics.CalculateMessageTop(mobile));
-            Assert.Equal(7f, ToastMetrics.CalculateTitleBodyGap(fullHd));
+            Assert.Equal(12f, mobile.ContentInset);
+            Assert.Equal(mobile.Width - 24f, ToastMetrics.ContentWidth(mobile));
+            Assert.Equal(8f, mobile.VerticalInset);
+            Assert.Equal(3f, ToastMetrics.CalculateTitleBodyGap(mobile));
+            Assert.Equal(47f, ToastMetrics.CalculateMessageTop(mobile));
+            Assert.Equal(3f, ToastMetrics.CalculateTitleBodyGap(fullHd));
+            Assert.True(ToastMetrics.CalculateTitleHeight(fullHd) >= fullHd.TitleSize * 1.5f);
         }
 
         [Fact]
@@ -214,6 +302,35 @@ namespace Utility.Tests.Notifications
                 Assert.Equal(expectedHeights[i], height);
                 Assert.Equal(expectedInsets[i], inset);
             }
+        }
+
+        [Theory]
+        [InlineData(0.5f)]
+        [InlineData(1f)]
+        [InlineData(2.25f)]
+        [InlineData(3f)]
+        public void ScaledBackgroundBandsCoverTheCardWithoutAlphaOverlaps(float scale)
+        {
+            float width = 425f * scale;
+            float height = 105f * scale;
+            float previousEnd = 0f;
+            for (int i = 0; i < ToastMetrics.RoundedBandCount; i++)
+            {
+                ToastMetrics.GetRoundedBand(
+                    width,
+                    height,
+                    i,
+                    out float top,
+                    out float bandHeight,
+                    out float inset,
+                    scale
+                );
+                Assert.Equal(previousEnd, top);
+                Assert.InRange(inset, 0f, width * 0.5f);
+                Assert.True(bandHeight >= 0f);
+                previousEnd = top + bandHeight;
+            }
+            Assert.Equal(height, previousEnd);
         }
 
         private static ToastLayout CreateFullHdLayout()

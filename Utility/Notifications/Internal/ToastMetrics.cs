@@ -4,39 +4,54 @@ namespace Utility.Notifications.Internal
 {
     internal static class ToastMetrics
     {
-        internal const float AccentWidth = 6f;
-        internal const float BottomPadding = 15f;
-        internal const float CompatibilityMessageTop = 37f;
-        internal const float CompatibilityTitleHeight = 18f;
-        internal const float CornerRadius = 8f;
-        internal const float HorizontalPadding = 12f;
         internal const int RoundedBandCount = 7;
-        internal const float TitleHeight = 28f;
-        internal const float TopPadding = 15f;
 
-        private const float MaximumTitleBodyGap = 8f;
-        private const float MinimumTitleBodyGap = 5f;
+        private const float MaximumTitleBodyGap = 4f;
+        private const float MinimumTitleBodyGap = 2f;
 
-        internal static float ContentLeft => AccentWidth + HorizontalPadding;
-        internal static float StretchedContentOffsetX => AccentWidth * 0.5f;
-        internal static float StretchedContentWidthDelta => -AccentWidth - HorizontalPadding * 2f;
+        internal static float ContentWidth(ToastLayout layout) =>
+            Math.Max(1f, layout.Width - layout.ContentInset * 2f);
 
-        internal static float ContentWidth(float cardWidth) =>
-            Math.Max(1f, cardWidth - AccentWidth - HorizontalPadding * 2f);
+        internal static float CalculateVerticalInset(float spacingScale) =>
+            RoundToPixel(8f * spacingScale);
 
         internal static float CalculateTitleHeight(ToastLayout layout) =>
-            Math.Max(TitleHeight, layout.TitleSize + 4f);
+            CalculateLineHeight(layout.TitleSize);
+
+        // CJK system fonts can have taller ascenders/descenders than Unity's Latin font.
+        internal static float CalculateLineHeight(int fontSize) =>
+            (float)Math.Ceiling(fontSize * 1.5f);
 
         internal static float CalculateTitleBodyGap(ToastLayout layout) =>
+            CalculateTitleBodyGap(layout.TitleSize, layout.SpacingScale);
+
+        private static float CalculateTitleBodyGap(int titleSize, float spacingScale) =>
             RoundToPixel(
-                Math.Clamp(layout.TitleSize * 0.25f, MinimumTitleBodyGap, MaximumTitleBodyGap)
+                Math.Clamp(
+                    titleSize * 0.125f,
+                    MinimumTitleBodyGap * spacingScale,
+                    MaximumTitleBodyGap * spacingScale
+                )
             );
 
-        internal static float CalculateMessageTop(ToastLayout layout) =>
-            TopPadding + CalculateTitleHeight(layout) + CalculateTitleBodyGap(layout);
+        internal static float CalculateMinimumTextHeight(
+            int titleSize,
+            int textSize,
+            float spacingScale
+        ) =>
+            CalculateVerticalInset(spacingScale) * 2f
+            + CalculateLineHeight(titleSize)
+            + CalculateTitleBodyGap(titleSize, spacingScale)
+            + CalculateLineHeight(textSize);
 
-        internal static float CalculateMessageHeight(float cardHeight, float messageTop) =>
-            Math.Max(1f, cardHeight - messageTop - BottomPadding);
+        internal static float CalculateMessageTop(ToastLayout layout) =>
+            layout.VerticalInset + CalculateTitleHeight(layout) + CalculateTitleBodyGap(layout);
+
+        internal static float CalculateMessageHeight(
+            float cardHeight,
+            float messageTop,
+            ToastLayout layout
+        ) => Math.Max(1f, cardHeight - messageTop - layout.VerticalInset);
 
         internal static float RoundToPixel(float value) =>
             (float)Math.Round(value, MidpointRounding.AwayFromZero);
@@ -49,13 +64,17 @@ namespace Utility.Notifications.Internal
             int index,
             out float top,
             out float bandHeight,
-            out float inset
+            out float inset,
+            float spacingScale = 1f
         )
         {
             if (index < 0 || index >= RoundedBandCount)
                 throw new ArgumentOutOfRangeException(nameof(index));
 
-            float radius = Math.Min(CornerRadius, Math.Min(width, height) * 0.5f);
+            float radius = Math.Min(
+                RoundToPixel(8f * spacingScale),
+                Math.Min(width, height) * 0.5f
+            );
             float edgeBandHeight = radius * 0.25f;
             bandHeight = edgeBandHeight;
             switch (index)

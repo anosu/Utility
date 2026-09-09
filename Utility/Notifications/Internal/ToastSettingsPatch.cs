@@ -31,5 +31,20 @@ namespace Utility.Notifications.Internal
         internal int? TitleSize { get; }
         internal int? TextSize { get; }
         internal ToastAnchor? Anchor { get; }
+
+        internal ToastSettingsPatch Merge(ToastSettingsPatch newer) =>
+            new(
+                LatestFinite(Width, newer.Width),
+                LatestFinite(MinimumHeight, newer.MinimumHeight),
+                LatestFinite(Margin, newer.Margin),
+                LatestFinite(Gap, newer.Gap),
+                newer.MaximumVisible ?? MaximumVisible,
+                newer.TitleSize ?? TitleSize,
+                newer.TextSize ?? TextSize,
+                newer.Anchor ?? Anchor
+            );
+
+        private static float? LatestFinite(float? previous, float? newer) =>
+            newer.HasValue && float.IsFinite(newer.Value) ? newer : previous;
     }
 }

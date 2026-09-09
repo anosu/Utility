@@ -7,6 +7,8 @@
     <DebugType>none</DebugType>
     <Il2CppInteropVersion>1.5.1</Il2CppInteropVersion>
     <UnityProxyDir Condition="'$(UnityProxyDir)'==''"
-      >$(MSBuildThisFileDirectory)Utility\lib\Proxies</UnityProxyDir>
+      >$(MSBuildThisFileDirectory)dependencies/interop</UnityProxyDir>
+    <BaseIntermediateOutputPath Condition="'$(SharedDependencyBuildRoot)' != ''">$(SharedDependencyBuildRoot)Utility/obj/</BaseIntermediateOutputPath>
+    <BaseOutputPath Condition="'$(SharedDependencyBuildRoot)' != ''">$(SharedDependencyBuildRoot)Utility/bin/</BaseOutputPath>
   </PropertyGroup>
 </Project>

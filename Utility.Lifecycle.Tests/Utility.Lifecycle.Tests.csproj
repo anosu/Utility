@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile
+      Include="../Utility/Notifications/Internal/ToastGuiState.cs"
+      Link="Production/ToastGuiState.cs"
+    />
+    <Compile
+      Include="../Utility/Assets/AssetBundleLoader.cs"
+      Link="Production/AssetBundleLoader.cs"
+    />
+    <Compile Include="../Utility/Diagnostics/Logging.cs" Link="Production/Logging.cs" />
+    <Compile Include="../Utility/Notifications/Toast.cs" Link="Production/Toast.cs" />
+    <Compile Include="../Utility/Notifications/ToastTypes.cs" Link="Production/ToastTypes.cs" />
+    <Compile
+      Include="../Utility/Notifications/Internal/ToastBehaviour.cs"
+      Link="Production/ToastBehaviour.cs"
+    />
+    <Compile
+      Include="../Utility/Notifications/Internal/ToastSettingsPatch.cs"
+      Link="Production/ToastSettingsPatch.cs"
+    />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

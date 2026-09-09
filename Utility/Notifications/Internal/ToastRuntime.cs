@@ -149,6 +149,19 @@ namespace Utility.Notifications.Internal
 
             _imguiRenderer = null;
             _frameRenderer = null;
+            try
+            {
+                ToastFont.Release();
+            }
+            catch (Exception exception)
+            {
+                Logging.WriteRecoverable(
+                    LogLevel.Warning,
+                    "Toast",
+                    "Releasing the toast font failed.",
+                    exception
+                );
+            }
             _theme = null;
             _host = null;
             _hasLayout = false;

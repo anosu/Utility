@@ -79,7 +79,11 @@ namespace Utility.Notifications
 
             var instance = ToastBehaviour.Instance;
             if (!ReferenceEquals(instance, null))
-                UnityObject.Destroy(instance.gameObject);
+            {
+                GameObject host = instance.gameObject;
+                instance.Detach();
+                UnityObject.Destroy(host);
+            }
         }
 
         /// <summary>Queues a notification for display.</summary>

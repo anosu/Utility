@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 using UnityEngine;
 using Utility.Diagnostics;
@@ -20,9 +21,8 @@ namespace Utility.Notifications.Internal
 
         private bool _compatibilityMode;
         private bool _disabled;
-        private bool _bareLabelMode;
-        private bool _compatibilityFontSizeUnavailable;
-        private bool _compatibilityUsesConfiguredFontSize;
+        private bool _titleMeasurementUnavailable;
+        private bool _bodyMeasurementUnavailable;
         private GUIStyle? _boxStyle;
         private GUIStyle? _compatibilityTextStyle;
         private GUIStyle? _compatibilityTitleStyle;
@@ -45,11 +45,18 @@ namespace Utility.Notifications.Internal
             if (_disabled || active.Count == 0)
                 return;
 
-            if (_bareLabelMode)
-            {
-                TryRenderBareLabels(active, style, layout);
+            using var guiState = new ToastGuiState();
+            RenderContents(active, style, layout);
+        }
+
+        private void RenderContents(
+            IReadOnlyList<ToastItem> active,
+            ToastTheme style,
+            ToastLayout layout
+        )
+        {
+            if (_disabled || active.Count == 0)
                 return;
-            }
 
             if (_compatibilityMode)
             {
@@ -87,7 +94,6 @@ namespace Utility.Notifications.Internal
             _boxStyle = null;
             _compatibilityTextStyle = null;
             _compatibilityTitleStyle = null;
-            _compatibilityUsesConfiguredFontSize = false;
             _textStyle = null;
             _titleStyle = null;
         }
@@ -101,17 +107,16 @@ namespace Utility.Notifications.Internal
             int count = active.Count;
             EnsureStyles(style, layout);
 
-            float textWidth = ToastMetrics.ContentWidth(layout.Width);
+            float textWidth = ToastMetrics.ContentWidth(layout);
             float titleHeight = ToastMetrics.CalculateTitleHeight(layout);
             float messageTop = ToastMetrics.CalculateMessageTop(layout);
             float totalHeight = 0f;
             for (int i = 0; i < count; i++)
             {
-                _content.text = active[i].Message;
                 float contentHeight =
                     messageTop
-                    + _textStyle!.CalcHeight(_content, textWidth)
-                    + ToastMetrics.BottomPadding;
+                    + MeasureBodyHeight(_textStyle!, active[i].Message, textWidth, layout.TextSize)
+                    + layout.VerticalInset;
                 _heightCache[i] = Mathf.Max(contentHeight, layout.MinimumHeight);
             }
 
@@ -131,6 +136,7 @@ namespace Utility.Notifications.Internal
                     DrawCard(
                         item,
                         style,
+                        layout,
                         x,
                         y,
                         height,
@@ -147,6 +153,7 @@ namespace Utility.Notifications.Internal
         private void DrawCard(
             ToastItem item,
             ToastTheme style,
+            ToastLayout layout,
             float x,
             float y,
             float height,
@@ -157,30 +164,41 @@ namespace Utility.Notifications.Internal
         )
         {
             float alpha = item.Alpha;
-            float contentX = x + ToastMetrics.ContentLeft;
+            float contentX = x + layout.ContentInset;
             Color previousColor = GUI.color;
             Color previousContentColor = GUI.contentColor;
 
             try
             {
-                DrawCardSurface(item, style, x, y, width, height, alpha);
+                DrawCardSurface(item, style, layout, x, y, width, height, alpha);
 
                 GUI.color = new Color(1f, 1f, 1f, 1f);
                 GUI.contentColor = new Color(1f, 1f, 1f, 1f);
-                _titleStyle!.normal.textColor = WithAlpha(style.TitleColor, alpha);
+                _titleStyle!.normal.textColor = WithAlpha(
+                    style.TitleColor,
+                    style.TitleColor.a * alpha
+                );
                 GUI.Label(
-                    new Rect(contentX, y + ToastMetrics.TopPadding, textWidth, titleHeight),
-                    item.Title,
+                    new Rect(contentX, y + layout.VerticalInset, textWidth, titleHeight),
+                    item.GetDisplayTitle(
+                        textWidth,
+                        layout.TitleSize,
+                        this,
+                        value => MeasureTitleWidth(_titleStyle, value, layout.TitleSize)
+                    ),
                     _titleStyle
                 );
 
-                _textStyle!.normal.textColor = WithAlpha(style.TextColor, alpha);
+                _textStyle!.normal.textColor = WithAlpha(
+                    style.TextColor,
+                    style.TextColor.a * alpha
+                );
                 GUI.Label(
                     new Rect(
                         contentX,
                         y + messageTop,
                         textWidth,
-                        ToastMetrics.CalculateMessageHeight(height, messageTop)
+                        ToastMetrics.CalculateMessageHeight(height, messageTop, layout)
                     ),
                     item.Message,
                     _textStyle
@@ -204,6 +222,7 @@ namespace Utility.Notifications.Internal
 
             _titleStyle = new GUIStyle
             {
+                font = ToastFont.Get(),
                 fontStyle = FontStyle.Bold,
                 fontSize = layout.TitleSize,
                 alignment = TextAnchor.UpperLeft,
@@ -212,6 +231,8 @@ namespace Utility.Notifications.Internal
             };
             _textStyle = new GUIStyle
             {
+                font = ToastFont.Get(),
+                fontStyle = FontStyle.Normal,
                 fontSize = layout.TextSize,
                 alignment = TextAnchor.UpperLeft,
                 wordWrap = true,
@@ -230,6 +251,7 @@ namespace Utility.Notifications.Internal
         private void DrawCardSurface(
             ToastItem item,
             ToastTheme style,
+            ToastLayout layout,
             float x,
             float y,
             float width,
@@ -244,10 +266,10 @@ namespace Utility.Notifications.Internal
                     switch (_backgroundBackend)
                     {
                         case ImguiBackgroundBackend.StyledBox:
-                            DrawBoxSurface(item, style, x, y, width, height, alpha);
+                            DrawBoxSurface(item, style, layout, x, y, width, height, alpha);
                             return;
                         case ImguiBackgroundBackend.DrawTexture:
-                            DrawTextureSurface(item, style, x, y, width, height, alpha);
+                            DrawTextureSurface(item, style, layout, x, y, width, height, alpha);
                             return;
                         case ImguiBackgroundBackend.None:
                             return;
@@ -287,6 +309,7 @@ namespace Utility.Notifications.Internal
         private void DrawBoxSurface(
             ToastItem item,
             ToastTheme style,
+            ToastLayout layout,
             float x,
             float y,
             float width,
@@ -297,15 +320,15 @@ namespace Utility.Notifications.Internal
             EnsureBoxStyle();
 
             GUI.color = WithAlpha(style.BackgroundColor, style.BackgroundColor.a * alpha);
-            DrawRoundedBox(x, y, width, height, _boxStyle!);
+            DrawRoundedBox(x, y, width, height, _boxStyle!, layout.SpacingScale);
 
             GUI.color = WithAlpha(style.Accent(item.Kind), style.Accent(item.Kind).a * alpha);
-            float inset = Math.Min(ToastMetrics.CornerRadius, height * 0.5f);
+            float inset = Math.Min(layout.CornerRadius, height * 0.5f);
             float accentHeight = Math.Max(0f, height - inset * 2f);
             if (accentHeight > 0f)
             {
                 GUI.Box(
-                    new Rect(x, y + inset, ToastMetrics.AccentWidth, accentHeight),
+                    new Rect(x, y + inset, Math.Min(layout.AccentWidth, width), accentHeight),
                     string.Empty,
                     _boxStyle
                 );
@@ -315,6 +338,7 @@ namespace Utility.Notifications.Internal
         private void DrawTextureSurface(
             ToastItem item,
             ToastTheme style,
+            ToastLayout layout,
             float x,
             float y,
             float width,
@@ -323,13 +347,18 @@ namespace Utility.Notifications.Internal
         )
         {
             GUI.color = WithAlpha(style.BackgroundColor, style.BackgroundColor.a * alpha);
-            DrawRoundedTexture(x, y, width, height);
+            DrawRoundedTexture(x, y, width, height, layout.SpacingScale);
 
             Color accent = style.Accent(item.Kind);
             GUI.color = WithAlpha(accent, accent.a * alpha);
-            float inset = Math.Min(ToastMetrics.CornerRadius, height * 0.5f);
+            float inset = Math.Min(layout.CornerRadius, height * 0.5f);
             GUI.DrawTexture(
-                new Rect(x, y + inset, ToastMetrics.AccentWidth, Math.Max(0f, height - inset * 2f)),
+                new Rect(
+                    x,
+                    y + inset,
+                    Math.Min(layout.AccentWidth, width),
+                    Math.Max(0f, height - inset * 2f)
+                ),
                 Texture2D.whiteTexture
             );
         }
@@ -348,7 +377,8 @@ namespace Utility.Notifications.Internal
             float y,
             float width,
             float height,
-            GUIStyle style
+            GUIStyle style,
+            float spacingScale
         )
         {
             for (int i = 0; i < ToastMetrics.RoundedBandCount; i++)
@@ -359,7 +389,8 @@ namespace Utility.Notifications.Internal
                     i,
                     out float top,
                     out float bandHeight,
-                    out float inset
+                    out float inset,
+                    spacingScale
                 );
                 GUI.Box(
                     new Rect(x + inset, y + top, width - inset * 2f, bandHeight),
@@ -369,7 +400,13 @@ namespace Utility.Notifications.Internal
             }
         }
 
-        private static void DrawRoundedTexture(float x, float y, float width, float height)
+        private static void DrawRoundedTexture(
+            float x,
+            float y,
+            float width,
+            float height,
+            float spacingScale
+        )
         {
             Texture2D texture = Texture2D.whiteTexture;
             for (int i = 0; i < ToastMetrics.RoundedBandCount; i++)
@@ -380,7 +417,8 @@ namespace Utility.Notifications.Internal
                     i,
                     out float top,
                     out float bandHeight,
-                    out float inset
+                    out float inset,
+                    spacingScale
                 );
                 GUI.DrawTexture(
                     new Rect(x + inset, y + top, width - inset * 2f, bandHeight),
@@ -407,14 +445,13 @@ namespace Utility.Notifications.Internal
             catch (Exception exception)
             {
                 LastError = exception;
-                _bareLabelMode = true;
+                _disabled = true;
                 Logging.WriteRecoverable(
                     LogLevel.Warning,
                     "Toast",
-                    "Compatibility IMGUI typography failed; switched to bare labels.",
+                    "Compatibility IMGUI typography failed; requesting the uGUI renderer.",
                     exception
                 );
-                TryRenderBareLabels(active, style, layout);
             }
         }
 
@@ -424,27 +461,27 @@ namespace Utility.Notifications.Internal
             ToastLayout layout
         )
         {
-            bool usesConfiguredFontSize = EnsureCompatibilityStyles(style, layout);
-            float contentWidth = ToastMetrics.ContentWidth(layout.Width);
-            float titleHeight = usesConfiguredFontSize
-                ? ToastMetrics.CalculateTitleHeight(layout)
-                : ToastMetrics.CompatibilityTitleHeight;
-            float messageTop = usesConfiguredFontSize
-                ? ToastMetrics.CalculateMessageTop(layout)
-                : ToastMetrics.CompatibilityMessageTop;
-            float characterWidth = usesConfiguredFontSize
-                ? Math.Max(1f, layout.TextSize * 0.55f)
-                : 8f;
-            float lineHeight = usesConfiguredFontSize ? layout.TextSize + 4f : 18f;
+            EnsureCompatibilityStyles(style, layout);
+            float contentWidth = ToastMetrics.ContentWidth(layout);
+            float titleHeight = ToastMetrics.CalculateTitleHeight(layout);
+            float messageTop = ToastMetrics.CalculateMessageTop(layout);
+            float characterWidth = Math.Max(1f, layout.TextSize * 0.55f);
             int maxColumns = Math.Max(8, (int)(contentWidth / characterWidth));
             float totalHeight = 0f;
 
             for (int i = 0; i < active.Count; i++)
             {
                 ToastItem item = active[i];
-                GetWrappedMessage(item, maxColumns, out int lineCount);
+                GetWrappedMessage(item, maxColumns);
                 _heightCache[i] = Math.Max(
-                    messageTop + lineCount * lineHeight + ToastMetrics.BottomPadding,
+                    messageTop
+                        + MeasureBodyHeight(
+                            _compatibilityTextStyle!,
+                            item.CompatibilityMessage ?? item.Message,
+                            contentWidth,
+                            layout.TextSize
+                        )
+                        + layout.VerticalInset,
                     layout.MinimumHeight
                 );
             }
@@ -467,29 +504,41 @@ namespace Utility.Notifications.Internal
 
                 try
                 {
-                    DrawCardSurface(item, style, x, y, layout.Width, height, alpha);
+                    DrawCardSurface(item, style, layout, x, y, layout.Width, height, alpha);
 
                     GUI.color = new Color(1f, 1f, 1f, 1f);
                     GUI.contentColor = new Color(1f, 1f, 1f, 1f);
-                    _compatibilityTitleStyle!.normal.textColor = WithAlpha(style.TitleColor, alpha);
+                    _compatibilityTitleStyle!.normal.textColor = WithAlpha(
+                        style.TitleColor,
+                        style.TitleColor.a * alpha
+                    );
                     GUI.Label(
                         new Rect(
-                            x + ToastMetrics.ContentLeft,
-                            y + ToastMetrics.TopPadding,
+                            x + layout.ContentInset,
+                            y + layout.VerticalInset,
                             contentWidth,
                             titleHeight
                         ),
-                        item.Title,
+                        item.GetDisplayTitle(
+                            contentWidth,
+                            layout.TitleSize,
+                            _compatibilityTitleStyle,
+                            value =>
+                                MeasureTitleWidth(_compatibilityTitleStyle, value, layout.TitleSize)
+                        ),
                         _compatibilityTitleStyle
                     );
 
-                    _compatibilityTextStyle!.normal.textColor = WithAlpha(style.TextColor, alpha);
+                    _compatibilityTextStyle!.normal.textColor = WithAlpha(
+                        style.TextColor,
+                        style.TextColor.a * alpha
+                    );
                     GUI.Label(
                         new Rect(
-                            x + ToastMetrics.ContentLeft,
+                            x + layout.ContentInset,
                             y + messageTop,
                             contentWidth,
-                            ToastMetrics.CalculateMessageHeight(height, messageTop)
+                            ToastMetrics.CalculateMessageHeight(height, messageTop, layout)
                         ),
                         item.CompatibilityMessage ?? item.Message,
                         _compatibilityTextStyle
@@ -505,111 +554,16 @@ namespace Utility.Notifications.Internal
             }
         }
 
-        private void TryRenderBareLabels(
-            IReadOnlyList<ToastItem> active,
-            ToastTheme style,
-            ToastLayout layout
-        )
-        {
-            try
-            {
-                RenderBareLabels(active, style, layout);
-            }
-            catch (Exception exception)
-            {
-                LastError = exception;
-                _disabled = true;
-            }
-        }
-
-        private void RenderBareLabels(
-            IReadOnlyList<ToastItem> active,
-            ToastTheme style,
-            ToastLayout layout
-        )
-        {
-            float contentWidth = ToastMetrics.ContentWidth(layout.Width);
-            int maxColumns = Math.Max(8, (int)(contentWidth / 8f));
-            float totalHeight = 0f;
-            for (int i = 0; i < active.Count; i++)
-            {
-                GetWrappedMessage(active[i], maxColumns, out int lineCount);
-                _heightCache[i] = Math.Max(
-                    ToastMetrics.CompatibilityMessageTop
-                        + lineCount * 18f
-                        + ToastMetrics.BottomPadding,
-                    layout.MinimumHeight
-                );
-            }
-
-            layout.FitCardHeights(_heightCache, active.Count);
-            for (int i = 0; i < active.Count; i++)
-                totalHeight += _heightCache[i];
-
-            totalHeight += layout.Gap * Math.Max(0, active.Count - 1);
-            float x = layout.CalculateImguiX(style.Anchor);
-            float y = layout.CalculateImguiY(style.Anchor, totalHeight);
-
-            for (int i = 0; i < active.Count; i++)
-            {
-                ToastItem item = active[i];
-                float height = _heightCache[i];
-                float alpha = item.Alpha;
-                Color previousColor = GUI.color;
-                Color previousContentColor = GUI.contentColor;
-
-                try
-                {
-                    DrawCardSurface(item, style, x, y, layout.Width, height, alpha);
-                    GUI.color = new Color(1f, 1f, 1f, 1f);
-
-                    GUI.contentColor = WithAlpha(style.TitleColor, alpha);
-                    GUI.Label(
-                        new Rect(
-                            x + ToastMetrics.ContentLeft,
-                            y + ToastMetrics.TopPadding,
-                            contentWidth,
-                            ToastMetrics.CompatibilityTitleHeight
-                        ),
-                        item.Title
-                    );
-
-                    GUI.contentColor = WithAlpha(style.TextColor, alpha);
-                    GUI.Label(
-                        new Rect(
-                            x + ToastMetrics.ContentLeft,
-                            y + ToastMetrics.CompatibilityMessageTop,
-                            contentWidth,
-                            ToastMetrics.CalculateMessageHeight(
-                                height,
-                                ToastMetrics.CompatibilityMessageTop
-                            )
-                        ),
-                        item.CompatibilityMessage ?? item.Message
-                    );
-                }
-                finally
-                {
-                    GUI.color = previousColor;
-                    GUI.contentColor = previousContentColor;
-                }
-
-                y += height + layout.Gap;
-            }
-        }
-
-        private static void GetWrappedMessage(ToastItem item, int maxColumns, out int lineCount)
+        private static void GetWrappedMessage(ToastItem item, int maxColumns)
         {
             if (item.CompatibilityMessage != null && item.CompatibilityCharacters == maxColumns)
             {
-                lineCount = item.CompatibilityLineCount;
                 return;
             }
 
             string value = item.Message;
             var result = new StringBuilder(value.Length + value.Length / maxColumns);
             int column = 0;
-            lineCount = 1;
 
             for (int i = 0; i < value.Length; i++)
             {
@@ -621,7 +575,6 @@ namespace Utility.Notifications.Internal
                 {
                     result.Append(character);
                     column = 0;
-                    lineCount++;
                     continue;
                 }
 
@@ -634,7 +587,6 @@ namespace Utility.Notifications.Internal
                 {
                     result.Append('\n');
                     column = 0;
-                    lineCount++;
                 }
 
                 result.Append(character);
@@ -645,55 +597,106 @@ namespace Utility.Notifications.Internal
 
             item.CompatibilityMessage = result.ToString();
             item.CompatibilityCharacters = maxColumns;
-            item.CompatibilityLineCount = lineCount;
         }
 
-        private bool EnsureCompatibilityStyles(ToastTheme style, ToastLayout layout)
+        private float MeasureTitleWidth(GUIStyle style, string value, int fontSize)
+        {
+            if (!_titleMeasurementUnavailable)
+            {
+                try
+                {
+                    float width = ReadTitleWidth(style, value);
+                    if (float.IsFinite(width) && (width > 0f || value.Length == 0))
+                        return width;
+                    throw new InvalidOperationException("IMGUI returned an invalid text width.");
+                }
+                catch (Exception exception)
+                {
+                    _titleMeasurementUnavailable = true;
+                    Logging.WriteRecoverable(
+                        LogLevel.Debug,
+                        "Toast",
+                        "IMGUI title measurement is unavailable; using estimated widths.",
+                        exception
+                    );
+                }
+            }
+            return ToastTextMetrics.EstimateWidth(value, fontSize);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private float ReadTitleWidth(GUIStyle style, string value)
+        {
+            _content.text = value;
+            return style.CalcSize(_content).x;
+        }
+
+        private float MeasureBodyHeight(GUIStyle style, string value, float width, int fontSize)
+        {
+            if (!_bodyMeasurementUnavailable)
+            {
+                try
+                {
+                    float height = ReadBodyHeight(style, value, width);
+                    if (float.IsFinite(height) && (height > 0f || value.Length == 0))
+                        return Math.Max(height, ToastMetrics.CalculateLineHeight(fontSize));
+                    throw new InvalidOperationException("IMGUI returned an invalid text height.");
+                }
+                catch (Exception exception)
+                {
+                    _bodyMeasurementUnavailable = true;
+                    Logging.WriteRecoverable(
+                        LogLevel.Debug,
+                        "Toast",
+                        "IMGUI body measurement is unavailable; using estimated heights.",
+                        exception
+                    );
+                }
+            }
+            return ToastTextMetrics.EstimateLineCount(value, width, fontSize)
+                * ToastMetrics.CalculateLineHeight(fontSize);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private float ReadBodyHeight(GUIStyle style, string value, float width)
+        {
+            _content.text = value;
+            return style.CalcHeight(_content, width);
+        }
+
+        private void EnsureCompatibilityStyles(ToastTheme style, ToastLayout layout)
         {
             if (_compatibilityTitleStyle == null || _compatibilityTextStyle == null)
                 CreateCompatibilityStyles(style);
 
-            if (_compatibilityFontSizeUnavailable)
-                return false;
             if (
-                _compatibilityUsesConfiguredFontSize
-                && _compatibilityTitleSize == layout.TitleSize
+                _compatibilityTitleSize == layout.TitleSize
                 && _compatibilityTextSize == layout.TextSize
             )
             {
-                return true;
+                return;
             }
 
-            try
-            {
-                _compatibilityTitleStyle!.fontSize = layout.TitleSize;
-                _compatibilityTextStyle!.fontSize = layout.TextSize;
-                _compatibilityTitleSize = layout.TitleSize;
-                _compatibilityTextSize = layout.TextSize;
-                _compatibilityUsesConfiguredFontSize = true;
-                return true;
-            }
-            catch (Exception exception)
-            {
-                _compatibilityFontSizeUnavailable = true;
-                _compatibilityUsesConfiguredFontSize = false;
-                _compatibilityTitleSize = -1;
-                _compatibilityTextSize = -1;
-                CreateCompatibilityStyles(style);
-                Logging.WriteRecoverable(
-                    LogLevel.Debug,
-                    "Toast",
-                    "Compatibility IMGUI font sizing is unavailable; using Unity's default font size and compact spacing.",
-                    exception
-                );
-                return false;
-            }
+            _compatibilityTitleStyle!.fontSize = layout.TitleSize;
+            _compatibilityTextStyle!.fontSize = layout.TextSize;
+            _compatibilityTitleSize = layout.TitleSize;
+            _compatibilityTextSize = layout.TextSize;
         }
 
         private void CreateCompatibilityStyles(ToastTheme style)
         {
-            _compatibilityTitleStyle = new GUIStyle();
-            _compatibilityTextStyle = new GUIStyle();
+            _compatibilityTitleStyle = new GUIStyle
+            {
+                font = ToastFont.Get(),
+                fontStyle = FontStyle.Bold,
+                clipping = TextClipping.Clip,
+            };
+            _compatibilityTextStyle = new GUIStyle
+            {
+                font = ToastFont.Get(),
+                fontStyle = FontStyle.Normal,
+                clipping = TextClipping.Clip,
+            };
             _compatibilityTitleStyle.normal.textColor = style.TitleColor;
             _compatibilityTextStyle.normal.textColor = style.TextColor;
         }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes;
 using UnityEngine;
@@ -15,10 +16,12 @@ namespace Utility.Notifications.Internal
         private readonly float[] _heightCache = new float[ToastRuntime.Capacity];
         private readonly Font _font;
         private readonly GameObject _root;
+        private bool _titleMeasurementUnavailable;
+        private bool _bodyMeasurementUnavailable;
 
         internal UguiToastRenderer(Transform host)
         {
-            _font = LoadBuiltinFont();
+            _font = ToastFont.Get();
             _root = CreateUiObject(
                 "Utility.Notifications.uGUI",
                 typeof(RectTransform),
@@ -57,7 +60,10 @@ namespace Utility.Notifications.Internal
 
             float totalHeight = 0f;
             for (int i = 0; i < active.Count; i++)
-                _heightCache[i] = CalculateHeight(active[i].Message, layout);
+            {
+                PrepareText(_cards[i], active[i], layout);
+                _heightCache[i] = CalculateHeight(_cards[i], active[i].Message, layout);
+            }
 
             layout.FitCardHeights(_heightCache, active.Count);
             for (int i = 0; i < active.Count; i++)
@@ -73,7 +79,7 @@ namespace Utility.Notifications.Internal
                 ToastItem item = active[i];
                 Card card = _cards[i];
                 PositionCard(card, style, layout, totalHeight, offset);
-                UpdateCard(card, item, style, layout);
+                UpdateCard(card, item, style);
                 offset += card.Height + layout.Gap;
             }
 
@@ -89,10 +95,7 @@ namespace Utility.Notifications.Internal
 
         private Card CreateCard(int index)
         {
-            GameObject root = CreateUiObject(
-                $"Toast.{index}",
-                typeof(RectTransform)
-            );
+            GameObject root = CreateUiObject($"Toast.{index}", typeof(RectTransform));
             root.transform.SetParent(_root.transform, worldPositionStays: false);
             var backgroundBands = new Image[ToastMetrics.RoundedBandCount];
             for (int i = 0; i < backgroundBands.Length; i++)
@@ -116,17 +119,12 @@ namespace Utility.Notifications.Internal
             RectTransform accentRect = GetRequiredComponent<RectTransform>(accentObject);
             accentRect.anchorMin = new Vector2(0f, 0f);
             accentRect.anchorMax = new Vector2(0f, 1f);
-            accentRect.offsetMin = new Vector2(0f, ToastMetrics.CornerRadius);
-            accentRect.offsetMax = new Vector2(
-                ToastMetrics.AccentWidth,
-                -ToastMetrics.CornerRadius
-            );
             Image accent = GetRequiredComponent<Image>(accentObject);
             accent.raycastTarget = false;
 
             Text title = CreateText(root.transform, "Title", FontStyle.Bold, TextAnchor.UpperLeft);
             Text body = CreateText(root.transform, "Body", FontStyle.Normal, TextAnchor.UpperLeft);
-            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            title.horizontalOverflow = HorizontalWrapMode.Wrap;
             title.verticalOverflow = VerticalWrapMode.Truncate;
             body.horizontalOverflow = HorizontalWrapMode.Wrap;
             body.verticalOverflow = VerticalWrapMode.Truncate;
@@ -154,6 +152,8 @@ namespace Utility.Notifications.Internal
             text.font = _font;
             text.fontStyle = fontStyle;
             text.alignment = alignment;
+            text.resizeTextForBestFit = false;
+            text.supportRichText = false;
             text.raycastTarget = false;
             return text;
         }
@@ -188,38 +188,47 @@ namespace Utility.Notifications.Internal
             card.Rect.anchoredPosition = new Vector2(positionX, positionY);
             card.Rect.sizeDelta = new Vector2(layout.Width, card.Height);
 
-            PositionBackgroundBands(card.BackgroundBands, layout.Width, card.Height);
+            PositionBackgroundBands(
+                card.BackgroundBands,
+                layout.Width,
+                card.Height,
+                layout.SpacingScale
+            );
 
-            float accentInset = Math.Min(ToastMetrics.CornerRadius, card.Height * 0.5f);
+            float accentInset = Math.Min(layout.CornerRadius, card.Height * 0.5f);
             RectTransform accentRect = card.Accent.rectTransform;
             accentRect.offsetMin = new Vector2(0f, accentInset);
-            accentRect.offsetMax = new Vector2(ToastMetrics.AccentWidth, -accentInset);
+            accentRect.offsetMax = new Vector2(
+                Math.Min(layout.AccentWidth, layout.Width),
+                -accentInset
+            );
 
             float titleHeight = ToastMetrics.CalculateTitleHeight(layout);
             float bodyTop = ToastMetrics.CalculateMessageTop(layout);
-            SetTopRect(card.Title.rectTransform, ToastMetrics.TopPadding, titleHeight);
+            SetTopRect(card.Title.rectTransform, layout.VerticalInset, titleHeight, layout);
             SetTopRect(
                 card.Body.rectTransform,
                 bodyTop,
-                ToastMetrics.CalculateMessageHeight(card.Height, bodyTop)
+                ToastMetrics.CalculateMessageHeight(card.Height, bodyTop, layout),
+                layout
             );
         }
 
-        private static void SetTopRect(RectTransform rect, float top, float height)
+        private static void SetTopRect(
+            RectTransform rect,
+            float top,
+            float height,
+            ToastLayout layout
+        )
         {
             rect.anchorMin = new Vector2(0f, 1f);
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(0.5f, 1f);
-            rect.anchoredPosition = new Vector2(ToastMetrics.StretchedContentOffsetX, -top);
-            rect.sizeDelta = new Vector2(ToastMetrics.StretchedContentWidthDelta, height);
+            rect.anchoredPosition = new Vector2(0f, -top);
+            rect.sizeDelta = new Vector2(-layout.ContentInset * 2f, height);
         }
 
-        private static void UpdateCard(
-            Card card,
-            ToastItem item,
-            ToastTheme style,
-            ToastLayout layout
-        )
+        private static void UpdateCard(Card card, ToastItem item, ToastTheme style)
         {
             float alpha = item.Alpha;
             card.Root.SetActive(alpha > 0f);
@@ -235,16 +244,17 @@ namespace Utility.Notifications.Internal
             Color accent = style.Accent(item.Kind);
             card.Accent.color = WithAlpha(accent, accent.a * alpha);
 
-            card.Title.text = item.Title;
-            card.Title.fontSize = layout.TitleSize;
             card.Title.color = WithAlpha(style.TitleColor, style.TitleColor.a * alpha);
 
-            card.Body.text = item.Message;
-            card.Body.fontSize = layout.TextSize;
             card.Body.color = WithAlpha(style.TextColor, style.TextColor.a * alpha);
         }
 
-        private static void PositionBackgroundBands(Image[] bands, float width, float height)
+        private static void PositionBackgroundBands(
+            Image[] bands,
+            float width,
+            float height,
+            float spacingScale
+        )
         {
             for (int i = 0; i < bands.Length; i++)
             {
@@ -254,7 +264,8 @@ namespace Utility.Notifications.Internal
                     i,
                     out float top,
                     out float bandHeight,
-                    out float inset
+                    out float inset,
+                    spacingScale
                 );
                 RectTransform rect = bands[i].rectTransform;
                 rect.anchorMin = new Vector2(0f, 1f);
@@ -265,55 +276,114 @@ namespace Utility.Notifications.Internal
             }
         }
 
-        private static float CalculateHeight(string message, ToastLayout layout)
+        private void PrepareText(Card card, ToastItem item, ToastLayout layout)
         {
+            float height = card.Height > 0f ? card.Height : layout.MinimumHeight;
+            card.Rect.sizeDelta = new Vector2(layout.Width, height);
             float bodyTop = ToastMetrics.CalculateMessageTop(layout);
-            int lineCount = ToastTextMetrics.EstimateLineCount(
-                message,
-                ToastMetrics.ContentWidth(layout.Width),
-                layout.TextSize
+            SetTopRect(
+                card.Body.rectTransform,
+                bodyTop,
+                ToastMetrics.CalculateMessageHeight(height, bodyTop, layout),
+                layout
             );
-
-            float bodyHeight = lineCount * (layout.TextSize + 4f);
-            return Math.Max(
-                layout.MinimumHeight,
-                bodyTop + bodyHeight + ToastMetrics.BottomPadding
+            card.Title.fontSize = layout.TitleSize;
+            card.Title.text = item.GetDisplayTitle(
+                ToastMetrics.ContentWidth(layout),
+                layout.TitleSize,
+                this,
+                value => MeasureTitleWidth(card.Title, value, layout.TitleSize)
             );
+            card.Body.fontSize = layout.TextSize;
+            card.Body.text = item.Message;
         }
 
-        private static Font LoadBuiltinFont()
+        private float MeasureTitleWidth(Text title, string value, int fontSize)
         {
-            Exception? lastError = null;
-            string[] candidates = { "LegacyRuntime.ttf", "Arial.ttf" };
-            for (int i = 0; i < candidates.Length; i++)
+            if (!_titleMeasurementUnavailable)
             {
                 try
                 {
-                    UnityObject? asset = Resources.GetBuiltinResource(
-                        Il2CppType.Of<Font>(),
-                        candidates[i]
-                    );
-                    Font? font = asset?.TryCast<Font>();
-                    if (!ReferenceEquals(font, null))
-                        return font;
+                    float width = ReadTitleWidth(title, value);
+                    if (float.IsFinite(width) && (width > 0f || value.Length == 0))
+                        return width;
+                    throw new InvalidOperationException("uGUI returned an invalid text width.");
                 }
                 catch (Exception exception)
                 {
-                    lastError = exception;
+                    _titleMeasurementUnavailable = true;
                     Logging.WriteRecoverable(
                         LogLevel.Debug,
                         "Toast",
-                        $"Built-in uGUI font '{candidates[i]}' is unavailable.",
+                        "uGUI title measurement is unavailable; using estimated widths.",
                         exception
                     );
                 }
             }
+            return ToastTextMetrics.EstimateWidth(value, fontSize);
+        }
 
-            throw new InvalidOperationException(
-                "No compatible built-in Unity UI font is available.",
-                lastError
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float ReadTitleWidth(Text title, string value)
+        {
+            title.text = value;
+            return title.preferredWidth;
+        }
+
+        private float CalculateHeight(Card card, string message, ToastLayout layout)
+        {
+            float bodyTop = ToastMetrics.CalculateMessageTop(layout);
+            float width = ToastMetrics.ContentWidth(layout);
+            if (
+                card.MeasuredMessage != message
+                || card.MeasuredWidth != width
+                || card.MeasuredFontSize != layout.TextSize
+            )
+            {
+                card.MeasuredBodyHeight = MeasureBodyHeight(
+                    card.Body,
+                    message,
+                    width,
+                    layout.TextSize
+                );
+                card.MeasuredMessage = message;
+                card.MeasuredWidth = width;
+                card.MeasuredFontSize = layout.TextSize;
+            }
+            return Math.Max(
+                layout.MinimumHeight,
+                bodyTop + card.MeasuredBodyHeight + layout.VerticalInset
             );
         }
+
+        private float MeasureBodyHeight(Text body, string message, float width, int fontSize)
+        {
+            if (!_bodyMeasurementUnavailable)
+            {
+                try
+                {
+                    float height = ReadBodyHeight(body);
+                    if (float.IsFinite(height) && (height > 0f || message.Length == 0))
+                        return Math.Max(height, ToastMetrics.CalculateLineHeight(fontSize));
+                    throw new InvalidOperationException("uGUI returned an invalid text height.");
+                }
+                catch (Exception exception)
+                {
+                    _bodyMeasurementUnavailable = true;
+                    Logging.WriteRecoverable(
+                        LogLevel.Debug,
+                        "Toast",
+                        "uGUI body measurement is unavailable; using estimated heights.",
+                        exception
+                    );
+                }
+            }
+            return ToastTextMetrics.EstimateLineCount(message, width, fontSize)
+                * ToastMetrics.CalculateLineHeight(fontSize);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float ReadBodyHeight(Text body) => body.preferredHeight;
 
         private static GameObject CreateUiObject(string name, params Type[] components)
         {
@@ -364,6 +434,10 @@ namespace Utility.Notifications.Internal
             internal Text Title { get; }
             internal Text Body { get; }
             internal float Height { get; set; }
+            internal string? MeasuredMessage { get; set; }
+            internal float MeasuredWidth { get; set; }
+            internal int MeasuredFontSize { get; set; }
+            internal float MeasuredBodyHeight { get; set; }
         }
     }
 }

@@ -129,16 +129,16 @@ namespace Utility.Assets
             IsLoading = true;
             LastError = null;
             AssetBundle? bundle = null;
+            AssetBundleCreateRequest? bundleRequest = null;
 
             try
             {
                 bundle = TryLoadBundle();
                 if (ReferenceEquals(bundle, null))
                 {
-                    AssetBundleCreateRequest? request = null;
                     try
                     {
-                        request = AssetBundle.LoadFromFileAsync(_bundlePath);
+                        bundleRequest = AssetBundle.LoadFromFileAsync(_bundlePath);
                     }
                     catch (Exception exception)
                     {
@@ -151,7 +151,7 @@ namespace Utility.Assets
                         );
                     }
 
-                    if (ReferenceEquals(request, null))
+                    if (ReferenceEquals(bundleRequest, null))
                     {
                         throw new InvalidOperationException(
                             "AssetBundle.LoadFromFile is unavailable or failed.",
@@ -159,8 +159,9 @@ namespace Utility.Assets
                         );
                     }
 
-                    yield return request;
-                    bundle = request.assetBundle;
+                    yield return bundleRequest;
+                    bundle = bundleRequest.assetBundle;
+                    bundleRequest = null;
                 }
 
                 if (ReferenceEquals(bundle, null))
@@ -168,29 +169,50 @@ namespace Utility.Assets
                         $"Failed to load asset bundle: {_bundlePath}"
                     );
 
-                Asset = TryLoadAsset(bundle);
-                if (!IsLoaded)
+                TAsset? candidate = TryLoadAsset(bundle);
+                if (ReferenceEquals(candidate, null))
                 {
                     AssetBundleRequest? request = TryLoadAssetAsync(bundle);
                     if (!ReferenceEquals(request, null))
                     {
                         yield return request;
-                        Asset = TryGetRequestedAsset(request);
+                        candidate = TryGetRequestedAsset(request);
                     }
                 }
 
-                if (!IsLoaded)
+                if (ReferenceEquals(candidate, null))
                 {
                     string message = CreateLoadFailureMessage();
                     throw new InvalidOperationException(message, LastError);
                 }
 
-                Asset!.hideFlags = HideFlags.HideAndDontSave;
-                UnityObject.DontDestroyOnLoad(Asset);
+                candidate!.hideFlags = HideFlags.HideAndDontSave;
+                UnityObject.DontDestroyOnLoad(candidate);
+                Asset = candidate;
                 LastError = null;
             }
             finally
             {
+                if (ReferenceEquals(bundle, null) && !ReferenceEquals(bundleRequest, null))
+                {
+                    try
+                    {
+                        // Disposing the coroutine cannot cancel Unity's native request.
+                        // Reading assetBundle completes it synchronously so its result
+                        // remains owned here and can be unloaded, even during shutdown.
+                        bundle = bundleRequest.assetBundle;
+                    }
+                    catch (Exception exception)
+                    {
+                        LastError ??= exception;
+                        Logging.WriteRecoverable(
+                            LogLevel.Warning,
+                            "Assets",
+                            "Completing the cancelled AssetBundle request failed.",
+                            exception
+                        );
+                    }
+                }
                 if (!ReferenceEquals(bundle, null))
                     TryUnloadBundle(bundle, unloadLoadedObjects: !IsLoaded);
 

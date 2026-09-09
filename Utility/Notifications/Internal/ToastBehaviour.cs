@@ -31,11 +31,22 @@ namespace Utility.Notifications.Internal
             ToastRuntime.Shared.AttachRenderer(transform);
         }
 
-        private void Update() => ToastRuntime.Shared.ProcessFrame(Time.unscaledDeltaTime);
+        private void Update()
+        {
+            if (ReferenceEquals(_instance, this))
+                ToastRuntime.Shared.ProcessFrame(Time.unscaledDeltaTime);
+        }
 
-        private void OnGUI() => ToastRuntime.Shared.Render();
+        private void OnGUI()
+        {
+            if (ReferenceEquals(_instance, this))
+                ToastRuntime.Shared.Render();
+        }
 
-        private void OnDestroy()
+        private void OnDestroy() => Detach();
+
+        [HideFromIl2Cpp]
+        internal void Detach()
         {
             if (!ReferenceEquals(_instance, this))
                 return;

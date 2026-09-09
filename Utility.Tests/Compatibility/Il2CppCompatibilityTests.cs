@@ -40,6 +40,14 @@ namespace Utility.Tests.Compatibility
             );
 
         [Fact]
+        public void ImguiRendererUsesAnExplicitFont() =>
+            Assert.True(AssemblyMetadata.HasMemberReference("UnityEngine", "GUIStyle", "set_font"));
+
+        [Fact]
+        public void TypographyFailureDoesNotFallBackToGameSkinLabels() =>
+            Assert.False(AssemblyMetadata.HasMemberReference("UnityEngine", "GUI", "Label", 2));
+
+        [Fact]
         public void LegacyBoxBackendUsesStyleBackground() =>
             Assert.True(
                 AssemblyMetadata.HasMemberReference(

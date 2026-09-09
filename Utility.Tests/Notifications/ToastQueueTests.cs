@@ -23,6 +23,49 @@ namespace Utility.Tests.Notifications
         }
 
         [Fact]
+        public void RepeatedClearsDiscardObsoleteCommands()
+        {
+            var queue = new ToastCommandQueue();
+            for (int i = 0; i < 10000; i++)
+            {
+                queue.EnqueueShow("title", "message", ToastKind.Info, 3f);
+                queue.EnqueueClear();
+            }
+
+            Assert.Equal(0, queue.Count);
+            queue.RunExclusive(commands => Assert.Single(commands));
+        }
+
+        [Fact]
+        public void ConfigurationCompactionPreservesLastValidValuesAcrossClear()
+        {
+            var queue = new ToastCommandQueue();
+            queue.EnqueueConfigure(
+                new ToastSettingsPatch(360f, null, null, null, null, 20, null, null)
+            );
+            for (int i = 0; i < 1000; i++)
+            {
+                queue.EnqueueShow("title", "message", ToastKind.Info, 3f);
+                queue.EnqueueConfigure(
+                    new ToastSettingsPatch(float.NaN, null, 12f, null, null, null, 16, null)
+                );
+                queue.EnqueueClear();
+            }
+
+            queue.RunExclusive(commands =>
+            {
+                Assert.Equal(2, commands.Count);
+                ToastCommand configuration = commands.Dequeue();
+                Assert.Equal(ToastCommandKind.Configure, configuration.Operation);
+                Assert.Equal(360f, configuration.Settings.Width);
+                Assert.Equal(12f, configuration.Settings.Margin);
+                Assert.Equal(20, configuration.Settings.TitleSize);
+                Assert.Equal(16, configuration.Settings.TextSize);
+                Assert.Equal(ToastCommandKind.Clear, commands.Dequeue().Operation);
+            });
+        }
+
+        [Fact]
         public void CommandsRetainTheirOrder()
         {
             var queue = new ToastCommandQueue();
@@ -38,10 +81,7 @@ namespace Utility.Tests.Notifications
             });
 
             Assert.Equal(1, queue.Count);
-            Assert.Equal(
-                new[] { ToastCommandKind.Show, ToastCommandKind.Clear, ToastCommandKind.Show },
-                operations
-            );
+            Assert.Equal(new[] { ToastCommandKind.Clear, ToastCommandKind.Show }, operations);
         }
 
         [Fact]

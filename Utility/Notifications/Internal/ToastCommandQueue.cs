@@ -89,6 +89,11 @@ namespace Utility.Notifications.Internal
         {
             lock (_gate)
             {
+                ToastSettingsPatch? configuration = RemoveConfigurations(
+                    discardOtherCommands: true
+                );
+                if (configuration.HasValue)
+                    _commands.Enqueue(ToastCommand.Configure(configuration.Value));
                 _commands.Enqueue(ToastCommand.Clear());
                 _itemCount = 0;
             }
@@ -97,7 +102,28 @@ namespace Utility.Notifications.Internal
         internal void EnqueueConfigure(ToastSettingsPatch settings)
         {
             lock (_gate)
-                _commands.Enqueue(ToastCommand.Configure(settings));
+            {
+                // All pending settings are applied before rendering the next frame.
+                // Keep one combined patch, including across Show/Clear commands.
+                ToastSettingsPatch previous =
+                    RemoveConfigurations(discardOtherCommands: false) ?? default;
+                _commands.Enqueue(ToastCommand.Configure(previous.Merge(settings)));
+            }
+        }
+
+        private ToastSettingsPatch? RemoveConfigurations(bool discardOtherCommands)
+        {
+            ToastSettingsPatch? configuration = null;
+            int count = _commands.Count;
+            for (int i = 0; i < count; i++)
+            {
+                ToastCommand command = _commands.Dequeue();
+                if (command.Operation == ToastCommandKind.Configure)
+                    configuration = (configuration ?? default).Merge(command.Settings);
+                else if (!discardOtherCommands)
+                    _commands.Enqueue(command);
+            }
+            return configuration;
         }
 
         internal void RunExclusive(Action<Queue<ToastCommand>> action)

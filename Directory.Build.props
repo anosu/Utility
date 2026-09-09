@@ -5,10 +5,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Deterministic>true</Deterministic>
     <DebugType>none</DebugType>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/bin/**;**/obj/**</DefaultItemExcludes>
     <Il2CppInteropVersion>1.5.1</Il2CppInteropVersion>
     <UnityProxyDir Condition="'$(UnityProxyDir)'==''"
       >$(MSBuildThisFileDirectory)dependencies/interop</UnityProxyDir>
-    <BaseIntermediateOutputPath Condition="'$(SharedDependencyBuildRoot)' != ''">$(SharedDependencyBuildRoot)Utility/obj/</BaseIntermediateOutputPath>
-    <BaseOutputPath Condition="'$(SharedDependencyBuildRoot)' != ''">$(SharedDependencyBuildRoot)Utility/bin/</BaseOutputPath>
+    <BaseIntermediateOutputPath Condition="'$(SharedDependencyBuildRoot)' != ''"
+      >$(SharedDependencyBuildRoot)Utility/obj/</BaseIntermediateOutputPath>
+    <BaseOutputPath Condition="'$(SharedDependencyBuildRoot)' != ''"
+      >$(SharedDependencyBuildRoot)Utility/bin/</BaseOutputPath>
   </PropertyGroup>
 </Project>

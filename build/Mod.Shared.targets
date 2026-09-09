@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <SharedDependencyMode Condition="'$(SharedDependencyMode)' == ''">pinned</SharedDependencyMode>
+    <SharedDependencyBuildRoot Condition="'$(SharedDependencyBuildRoot)' == ''">$(ModRepositoryRoot)artifacts/shared/$(SharedDependencyMode)/</SharedDependencyBuildRoot>
+    <AdapterProjectPath Condition="'$(UseAdapter)' == 'true' and '$(AdapterProjectPath)' == ''">$(ModRepositoryRoot)shared/Adapter/Adapter.csproj</AdapterProjectPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(UtilityProjectPath)" Private="true"
+                      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+                      GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath" />
+    <ProjectReference Include="$(AdapterProjectPath)" Condition="'$(UseAdapter)' == 'true'" Private="true"
+                      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+                      GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath" />
+  </ItemGroup>
+  <Target Name="ValidateSharedProjects" BeforeTargets="ResolveProjectReferences">
+    <Error Condition="!Exists('$(UtilityProjectPath)')" Text="Utility source is missing. Run git submodule update --init --recursive, or configure SharedDependencies.local.props." />
+    <Error Condition="'$(UseAdapter)' == 'true' and !Exists('$(AdapterProjectPath)')" Text="Adapter source is missing. Initialize the private submodule using a GitHub account with access, or configure SharedDependencies.local.props." />
+  </Target>
+</Project>

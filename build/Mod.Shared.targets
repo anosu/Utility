@@ -7,19 +7,23 @@
       >$(ModRepositoryRoot)artifacts/shared/$(SharedDependencyMode)/</SharedDependencyBuildRoot>
     <ExtensionProjectPath Condition="'$(UseExtension)' == 'true' and '$(ExtensionProjectPath)' == ''"
       >$(ModRepositoryRoot)shared/Extension/Extension.csproj</ExtensionProjectPath>
+    <!-- Visual Studio builds loaded projects in their own context; their output
+         paths must match the paths queried by consuming projects. -->
+    <SharedReferenceBuildProperties Condition="'$(BuildingInsideVisualStudio)' != 'true'"
+      >SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)</SharedReferenceBuildProperties>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference
       Include="$(UtilityProjectPath)"
       Private="true"
-      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+      AdditionalProperties="$(SharedReferenceBuildProperties)"
       GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath"
     />
     <ProjectReference
       Include="$(ExtensionProjectPath)"
       Condition="'$(UseExtension)' == 'true'"
       Private="true"
-      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+      AdditionalProperties="$(SharedReferenceBuildProperties)"
       GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath"
     />
   </ItemGroup>

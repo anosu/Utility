@@ -7,19 +7,23 @@
       >$(ModRepositoryRoot)artifacts/shared/$(SharedDependencyMode)/</SharedDependencyBuildRoot>
     <AdapterProjectPath Condition="'$(UseAdapter)' == 'true' and '$(AdapterProjectPath)' == ''"
       >$(ModRepositoryRoot)shared/Adapter/Adapter.csproj</AdapterProjectPath>
+    <!-- Visual Studio builds loaded projects in their own context; their output
+         paths must match the paths queried by consuming projects. -->
+    <SharedReferenceBuildProperties Condition="'$(BuildingInsideVisualStudio)' != 'true'"
+      >SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)</SharedReferenceBuildProperties>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference
       Include="$(UtilityProjectPath)"
       Private="true"
-      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+      AdditionalProperties="$(SharedReferenceBuildProperties)"
       GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath"
     />
     <ProjectReference
       Include="$(AdapterProjectPath)"
       Condition="'$(UseAdapter)' == 'true'"
       Private="true"
-      AdditionalProperties="SharedDependencyBuildRoot=$(SharedDependencyBuildRoot)"
+      AdditionalProperties="$(SharedReferenceBuildProperties)"
       GlobalPropertiesToRemove="OutputPath;BaseOutputPath;BaseIntermediateOutputPath;MSBuildProjectExtensionsPath"
     />
   </ItemGroup>

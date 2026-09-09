@@ -20,4 +20,26 @@ Consumers can pass `SharedDependencyBuildRoot` through ProjectReference metadata
 
 Each Mod pins a tested submodule commit. Local development may opt into a sibling checkout through an ignored configuration file; CI must build the pinned commit.
 
+### Visual Studio
+
+Visual Studio restores and builds the projects loaded in the solution. Include
+the pinned Utility project (and Adapter when used) in each Mod's standard solution.
+Standard Visual Studio solutions ignore machine-local shared source overrides.
+
+To edit a sibling Utility checkout, configure the Mod's
+`SharedDependencies.local.props`, then run from the Mod repository:
+
+```powershell
+pwsh -NoProfile -File shared/Utility/scripts/New-ModSolution.ps1 -Project GCMod/GCMod.csproj
+```
+
+Replace the project path with the Mod's actual project. Open the generated
+`<repository>.local.slnx` in Visual Studio 2022 17.14 or newer. The generator adds
+the actual shared projects selected by the local configuration. Keep this file
+out of Git and regenerate it when changing shared project paths.
+
+Visual Studio builds shared projects into their own `bin` and `obj` directories;
+reference metadata must use those same paths. Command-line project builds retain
+the per-Mod output isolation under `artifacts/shared`.
+
 See [docs/API.md](docs/API.md) for usage and runtime limitations.

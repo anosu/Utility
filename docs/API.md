@@ -4,6 +4,22 @@
 
 The library does not reference either loader. Both environments use the same initialization path and the same binary.
 
+## General-purpose JSON resources
+
+`Utility.Caching.JsonResourceCache` is independent of Unity. Supply an existing `HttpClient` and logging callbacks. The caller disposes the client after cancelling active work. Use a cache instance for one resource session; keys must consistently identify the same path, URL and validation contract.
+
+- `LoadAsync<T>(key, path, url, expectedHash, cancellationToken)` merges concurrent readers and memoizes successful values, including stale fallbacks. Its constructor accepts a raw-JSON hash function. A missing resource enters retry cooldown (30 seconds by default). Recreate the cache when changing resource identities or validation rules.
+- `RefreshAsync<T>(key, path, url, policy, validate, cancellationToken)` rereads disk on every call, without memoization or cooldown. Calls for the same key are serialized. `Refresh` uses a valid local copy if a validator exists, otherwise downloads; `PreferLocal` accepts any readable local copy; `LocalOnly` never downloads. A validator checks both existing and downloaded values. Refresh does not invalidate previously memoized `LoadAsync` values; choose one entry point per resource.
+- `LoadLocalAsync<T>(path, cancellationToken)` reads a snapshot without waiting for network work.
+
+Failed downloads, invalid JSON or failed validation fall back to readable local data. Rejected remote data is never saved or returned. Writes use a unique temporary file followed by replacement; write failure does not discard a successfully downloaded value. Caller cancellation propagates without fallback notifications, cache publication or retry cooldown.
+
+Refresh uses System.Text.Json web defaults for remote DTOs, then serializes the typed value with default options for disk reads. Memoized loads retain the original JSON and use default deserialization. The cache knows no URL conventions, language names, manifests or UI messages. Optional callbacks report stale/unavailable outcomes and download exceptions; HTTP status failures and timeouts are logged without an exception notification.
+
+`Utility.Cryptography.StringTableHash.ComputeEntries` fingerprints caller-ordered `(key, value)` pairs as UTF-8 key, NUL, value, NUL. Null values encode as empty strings. `Compute(json)` sorts nested object keys by Unicode code point, joins nested paths with U+0001, and applies the same entry encoding. Digests are lowercase MD5 for compatibility with existing content protocols; they do not authenticate untrusted data. Callers retain schema-specific traversal, null-branch handling and alternative sort rules.
+
+The former `Utility.Translation` namespace has been replaced by `Utility.Caching` and `Utility.Cryptography`; update consumers and their pinned Utility revision together.
+
 ## Installation
 
 Copy `Utility.dll` next to the consuming mod. Do not copy `Il2CppInterop.Runtime.dll` from the build output; the active loader supplies its compatible runtime.

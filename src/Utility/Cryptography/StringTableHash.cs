@@ -1,17 +1,56 @@
 #nullable enable
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Utility.Translation;
+namespace Utility.Cryptography;
 
-/// <summary>The nested table protocol used by GC and Ayarabu translation manifests.</summary>
-public static class TranslationTableHash
+/// <summary>Deterministic MD5 digests of string-table entries separated by NUL bytes.</summary>
+public static class StringTableHash
 {
     private static readonly IComparer<string> KeyComparer = Comparer<string>.Create(CompareKeys);
+    private static readonly byte[] Separator = { 0 };
+
+    /// <summary>Hashes ordered key/value entries as UTF-8 key, NUL, value, NUL. Null values are empty.</summary>
+    /// <remarks>The caller defines ordering and nested-path encoding. This is a content fingerprint, not authentication.</remarks>
+    public static string ComputeEntries(IEnumerable<(string Key, string? Value)> entries)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+        foreach (var (key, value) in entries)
+        {
+            AppendUtf8(hash, key);
+            hash.AppendData(Separator);
+            AppendUtf8(hash, value);
+            hash.AppendData(Separator);
+        }
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    private static void AppendUtf8(IncrementalHash hash, string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return;
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        byte[]? rented = null;
+        Span<byte> buffer =
+            byteCount <= 512
+                ? stackalloc byte[byteCount]
+                : (rented = ArrayPool<byte>.Shared.Rent(byteCount));
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(value.AsSpan(), buffer);
+            hash.AppendData(buffer[..written]);
+        }
+        finally
+        {
+            if (rented != null)
+                ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
 
     /// <summary>Hashes Unicode-code-point-sorted paths and values separated by NUL bytes.</summary>
     public static string Compute(string json)

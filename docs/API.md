@@ -278,8 +278,8 @@ A mod cannot restore a Unity method that the game developer already removed from
 ## Verification
 
 ```shell
-dotnet build Utility.sln -c Release
-dotnet test Utility.sln -c Release --no-build
+dotnet build Utility.slnx -c Release
+dotnet test Utility.slnx -c Release --no-build
 ```
 
 The metadata tests reject known-dangerous references, including Unity object truthiness operators, `DrawTextureWithTexCoords`, and `GetAllAssetNames`. They check IMGUI drawing references, absence of a concrete TextMeshPro dependency, and retention of uGUI and AssetBundle fallback paths. Managed tests cover layout, text estimates, and bounded command processing. Lifecycle tests link the production sources and simulate delayed destruction, cancellation during bundle/asset requests, and persistence failures followed by retries. These substitutes verify managed control flow; Android rendering, glyph coverage, and native loading behavior still require device validation.

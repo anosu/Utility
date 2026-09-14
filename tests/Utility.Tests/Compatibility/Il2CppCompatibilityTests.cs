@@ -27,7 +27,7 @@ namespace Utility.Tests.Compatibility
 
         [Fact]
         public void Il2CppArrayEnumeratorIsNotReferenced() =>
-            Assert.False(AssemblyMetadata.HasMemberReferenceNamed("GetEnumerator"));
+            Assert.False(AssemblyMetadata.HasIl2CppMemberReferenceNamed("GetEnumerator"));
 
         [Fact]
         public void SpanPinningIsNotReferenced() =>

@@ -68,6 +68,43 @@ namespace Utility.Tests.Compatibility
             return false;
         }
 
+        internal static bool HasIl2CppMemberReferenceNamed(string memberName)
+        {
+            using FileStream stream = File.OpenRead(typeof(Toast).Assembly.Location);
+            using var peReader = new PEReader(stream);
+            MetadataReader metadata = peReader.GetMetadataReader();
+            foreach (MemberReferenceHandle handle in metadata.MemberReferences)
+            {
+                MemberReference member = metadata.GetMemberReference(handle);
+                if (metadata.GetString(member.Name) != memberName)
+                    continue;
+                EntityHandle owner = member.Parent;
+                if (owner.Kind == HandleKind.TypeSpecification)
+                {
+                    BlobReader signature = metadata.GetBlobReader(
+                        metadata.GetTypeSpecification((TypeSpecificationHandle)owner).Signature
+                    );
+                    // ECMA-335: GENERICINST, CLASS/VALUETYPE, TypeDefOrRefEncoded.
+                    if (signature.ReadByte() != 0x15)
+                        throw new InvalidDataException("Unexpected enumerator owner signature.");
+                    byte kind = signature.ReadByte();
+                    if (kind != 0x11 && kind != 0x12)
+                        throw new InvalidDataException("Unexpected generic enumerator owner.");
+                    owner = signature.ReadTypeHandle();
+                }
+                if (owner.Kind != HandleKind.TypeReference)
+                    continue;
+                TypeReference type = metadata.GetTypeReference((TypeReferenceHandle)owner);
+                if (
+                    metadata
+                        .GetString(type.Namespace)
+                        .StartsWith("Il2Cpp", System.StringComparison.Ordinal)
+                )
+                    return true;
+            }
+            return false;
+        }
+
         internal static bool HasAssemblyReference(string assemblyName)
         {
             using FileStream stream = File.OpenRead(typeof(Toast).Assembly.Location);

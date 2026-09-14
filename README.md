@@ -18,6 +18,6 @@ Cache retention is bounded by LRU (256 resource keys by default); idle resource 
 
 Mods reference `shared/Utility/src/Utility/Utility.csproj` through a Git submodule. `SharedDependencies.local.props` can select a sibling checkout; `project.py solution --local` prepares a local solution. CI uses the checked-out dependencies. Shared build outputs are isolated between consumers.
 
-Build commands are documented in [ModEngineering](shared/ModEngineering/README.md).
+Build commands are documented in [ModEngineering](https://github.com/anosu/ModEngineering).
 
 See [API](docs/API.md) for Unity runtime capabilities and limitations.

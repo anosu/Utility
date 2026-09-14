@@ -1,6 +1,6 @@
 #nullable enable
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -47,11 +47,36 @@ public sealed class JsonResourceCache
     private readonly Action<string, CacheFallback>? _fallback;
     private readonly Action<Exception>? _downloadError;
     private readonly TimeSpan _retryDelay;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
-    private readonly ConcurrentDictionary<(string, Type), object> _memory = new();
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _retryAfter = new();
+    private readonly ResourceGates _gates = new();
+    private readonly object _stateLock = new();
+    private readonly Dictionary<string, RetainedResource> _retained = new(StringComparer.Ordinal);
+    private readonly LinkedList<string> _recency = new();
+    private readonly int _maximumRetainedResources;
+    private readonly long? _maximumDownloadBytes;
+    private readonly JsonSerializerOptions? _jsonOptions;
     private static readonly Encoding Utf8 = new UTF8Encoding(false);
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Preserves the original constructor signature for already compiled consumers.</summary>
+    public JsonResourceCache(
+        HttpClient client,
+        Func<string, string> hash,
+        Action<string> info,
+        Action<string> warn,
+        Action<string, CacheFallback> fallback,
+        TimeSpan? retryDelay
+    )
+        : this(client, hash, info, warn, fallback, retryDelay, options: null) { }
+
+    /// <summary>Preserves the original disk-refresh constructor for already compiled consumers.</summary>
+    public JsonResourceCache(
+        HttpClient client,
+        Action<string> info,
+        Action<string> warn,
+        Action<string, CacheFallback>? fallback,
+        Action<Exception>? downloadError
+    )
+        : this(client, info, warn, fallback, downloadError, options: null) { }
 
     /// <summary>Creates a memoizing cache with a caller-supplied hash of the original JSON.</summary>
     public JsonResourceCache(
@@ -60,9 +85,10 @@ public sealed class JsonResourceCache
         Action<string> info,
         Action<string> warn,
         Action<string, CacheFallback> fallback,
-        TimeSpan? retryDelay = null
+        TimeSpan? retryDelay = null,
+        JsonResourceCacheOptions? options = null
     )
-        : this(client, info, warn, fallback)
+        : this(client, info, warn, fallback, options: options)
     {
         _hash = hash;
         _retryDelay = retryDelay ?? TimeSpan.FromSeconds(30);
@@ -75,15 +101,60 @@ public sealed class JsonResourceCache
         Action<string> info,
         Action<string> warn,
         Action<string, CacheFallback>? fallback = null,
-        Action<Exception>? downloadError = null
+        Action<Exception>? downloadError = null,
+        JsonResourceCacheOptions? options = null
     )
     {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(info);
+        ArgumentNullException.ThrowIfNull(warn);
+        options ??= new JsonResourceCacheOptions();
+        if (options.MaximumRetainedResources < 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Retention capacity cannot be negative."
+            );
+        if (options.MaximumDownloadBytes <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Download limit must be positive or null."
+            );
+        _maximumRetainedResources = options.MaximumRetainedResources;
+        _maximumDownloadBytes = options.MaximumDownloadBytes;
+        _jsonOptions =
+            options.SerializerOptions == null
+                ? null
+                : new JsonSerializerOptions(options.SerializerOptions);
         _client = client;
         _info = info;
         _warn = warn;
         _fallback = fallback;
         _downloadError = downloadError;
         _retryDelay = TimeSpan.FromSeconds(30);
+    }
+
+    /// <summary>Number of retained resource keys, including cooldowns.</summary>
+    public int RetainedResourceCount
+    {
+        get
+        {
+            lock (_stateLock)
+                return _retained.Count;
+        }
+    }
+
+    internal int ActiveResourceGateCount => _gates.Count;
+
+    /// <summary>
+    /// Waits for earlier operations on a key and removes its retained values and cooldown.
+    /// Disk files are preserved. A later request may load and retain the resource again.
+    /// </summary>
+    public async Task InvalidateAsync(string key, CancellationToken cancellationToken = default)
+    {
+        using var lease = await _gates.EnterAsync(key, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateLock)
+            RemoveRetained(key);
     }
 
     /// <summary>Reads a local snapshot without waiting for a download or memoizing it.</summary>
@@ -115,34 +186,46 @@ public sealed class JsonResourceCache
     {
         if (expectedHash != null && _hash == null)
             throw new InvalidOperationException("A JSON hash function is required for validation.");
-        var gate = _locks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var lease = await _gates.EnterAsync(key, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateLock)
         {
-            if (_memory.TryGetValue((key, typeof(T)), out var saved))
-                return (T)saved;
-            if (_retryAfter.TryGetValue(key, out var retry) && DateTimeOffset.UtcNow < retry)
-                return null;
-            var data = await LoadCoreAsync<T>(
-                    key,
-                    path,
-                    url,
-                    JsonCachePolicy.Refresh,
-                    expectedHash == null ? null : (json, _) => _hash!(json) == expectedHash,
-                    false,
-                    cancellationToken
-                )
-                .ConfigureAwait(false);
-            if (data != null)
-                _memory[(key, typeof(T))] = data;
-            else
-                _retryAfter[key] = DateTimeOffset.UtcNow + _retryDelay;
-            return data;
+            if (_retained.TryGetValue(key, out var resource))
+            {
+                _recency.Remove(resource.Node);
+                _recency.AddLast(resource.Node);
+                if (resource.Values.TryGetValue(typeof(T), out var saved))
+                    return (T)saved;
+                if (DateTimeOffset.UtcNow < resource.RetryAfter)
+                    return null;
+            }
         }
-        finally
+        var data = await LoadCoreAsync<T>(
+                key,
+                path,
+                url,
+                JsonCachePolicy.Refresh,
+                expectedHash == null ? null : (json, _) => _hash!(json) == expectedHash,
+                false,
+                cancellationToken
+            )
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateLock)
         {
-            gate.Release();
+            if (_maximumRetainedResources > 0)
+            {
+                var resource = GetOrCreateRetained(key);
+                if (data != null)
+                {
+                    resource.Values[typeof(T)] = data;
+                    resource.RetryAfter = default;
+                }
+                else
+                    resource.RetryAfter = DateTimeOffset.UtcNow + _retryDelay;
+            }
         }
+        return data;
     }
 
     /// <summary>
@@ -161,25 +244,47 @@ public sealed class JsonResourceCache
     )
         where T : class
     {
-        var gate = _locks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var lease = await _gates.EnterAsync(key, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return await LoadCoreAsync<T>(
+                key,
+                path,
+                url,
+                policy,
+                validate == null ? null : (_, value) => validate(value),
+                true,
+                cancellationToken
+            )
+            .ConfigureAwait(false);
+    }
+
+    // Access to retention state is always protected by _stateLock.
+    private RetainedResource GetOrCreateRetained(string key)
+    {
+        if (_retained.TryGetValue(key, out var value))
         {
-            return await LoadCoreAsync<T>(
-                    key,
-                    path,
-                    url,
-                    policy,
-                    validate == null ? null : (_, value) => validate(value),
-                    true,
-                    cancellationToken
-                )
-                .ConfigureAwait(false);
+            _recency.Remove(value.Node);
+            _recency.AddLast(value.Node);
+            return value;
         }
-        finally
-        {
-            gate.Release();
-        }
+        while (_retained.Count >= _maximumRetainedResources)
+            RemoveRetained(_recency.First!.Value);
+        value = new RetainedResource(_recency.AddLast(key));
+        _retained.Add(key, value);
+        return value;
+    }
+
+    private void RemoveRetained(string key)
+    {
+        if (_retained.Remove(key, out var resource))
+            _recency.Remove(resource.Node);
+    }
+
+    private sealed class RetainedResource(LinkedListNode<string> node)
+    {
+        internal readonly LinkedListNode<string> Node = node;
+        internal readonly Dictionary<Type, object> Values = new();
+        internal DateTimeOffset RetryAfter;
     }
 
     private async Task<T?> LoadCoreAsync<T>(
@@ -216,7 +321,7 @@ public sealed class JsonResourceCache
         {
             await SaveAsync(
                     path,
-                    webDefaults ? JsonSerializer.Serialize(remote) : remoteJson!,
+                    webDefaults ? JsonSerializer.Serialize(remote, _jsonOptions) : remoteJson!,
                     cancellationToken
                 )
                 .ConfigureAwait(false);
@@ -235,20 +340,56 @@ public sealed class JsonResourceCache
 
     private async Task<string?> DownloadAsync(string url, CancellationToken cancellationToken)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (_client.Timeout != Timeout.InfiniteTimeSpan)
+            timeout.CancelAfter(_client.Timeout);
+        var token = timeout.Token;
         try
         {
             _info($"Fetching JSON: {url}");
             using var response = await _client
-                .GetAsync(url, cancellationToken)
+                .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token)
                 .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 _warn($"GET {url} returned {(int)response.StatusCode} {response.StatusCode}");
                 return null;
             }
-            return await response
-                .Content.ReadAsStringAsync(cancellationToken)
+            if (
+                _maximumDownloadBytes is long limit
+                && response.Content.Headers.ContentLength > limit
+            )
+                throw new IOException($"JSON response exceeds the {limit}-byte download limit.");
+            await using var input = await response
+                .Content.ReadAsStreamAsync(token)
                 .ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            var block = new byte[81920];
+            while (true)
+            {
+                int requested =
+                    _maximumDownloadBytes is long max && max - buffer.Length < block.Length
+                        ? (int)(max - buffer.Length) + 1
+                        : block.Length;
+                int count = await input
+                    .ReadAsync(block.AsMemory(0, requested), token)
+                    .ConfigureAwait(false);
+                if (count == 0)
+                    break;
+                if (_maximumDownloadBytes is long bound && buffer.Length + count > bound)
+                    throw new IOException(
+                        $"JSON response exceeds the {bound}-byte download limit."
+                    );
+                buffer.Write(block, 0, count);
+            }
+            // Use HttpContent's charset/BOM decoding while retaining the bounded body buffer.
+            using var content = new ByteArrayContent(
+                buffer.GetBuffer(),
+                0,
+                checked((int)buffer.Length)
+            );
+            content.Headers.ContentType = response.Content.Headers.ContentType;
+            return await content.ReadAsStringAsync(token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -286,7 +427,10 @@ public sealed class JsonResourceCache
             return null;
         try
         {
-            return JsonSerializer.Deserialize<T>(json, webDefaults ? WebJson : null);
+            return JsonSerializer.Deserialize<T>(
+                json,
+                _jsonOptions ?? (webDefaults ? WebJson : null)
+            );
         }
         catch (JsonException e)
         {
@@ -304,6 +448,10 @@ public sealed class JsonResourceCache
             if (validate(json, value))
                 return true;
             _warn("JSON resource validation failed.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception e)
         {

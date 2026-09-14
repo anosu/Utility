@@ -14,6 +14,8 @@ Source: `src/Utility`; tests: `tests/Utility.Tests` and `tests/Utility.Lifecycle
 
 `Utility.Cryptography.StringTableHash` computes deterministic fingerprints of caller-ordered string pairs or nested JSON string tables. It defines byte encoding and separators, not application-specific dictionary categories.
 
+Cache retention is bounded by LRU (256 resource keys by default); idle resource gates are reclaimed. `InvalidateAsync` waits for current work on a key before clearing its retained values and cooldown. `JsonResourceCacheOptions` configures retention, the streamed download limit (64 MiB by default), and explicit serializer settings/converters shared by local and remote reads. Existing callers retain their JSON conventions when no serializer settings are supplied.
+
 Mods reference `shared/Utility/src/Utility/Utility.csproj` at a fixed Git commit. `SharedDependencies.local.props` can select a sibling checkout. CI uses pinned dependencies. Standard solutions include pinned projects; `scripts/solution.ps1 --local` generates an ignored solution containing the actual local projects and tests. Shared outputs are isolated for command-line builds; VS uses each loaded project's own output paths.
 
 Engineering implementation now lives in [ModEngineering](shared/ModEngineering/README.md). `scripts/New-ModSolution.ps1` remains a forwarding entry point for existing users.

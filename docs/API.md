@@ -20,6 +20,40 @@ Refresh uses System.Text.Json web defaults for remote DTOs, then serializes the 
 
 The former `Utility.Translation` namespace has been replaced by `Utility.Caching` and `Utility.Cryptography`; update consumers and their pinned Utility revision together.
 
+### Cache limits, invalidation and serialization
+
+Both cache constructors accept `options: new JsonResourceCacheOptions { ... }`. Existing constructor signatures remain available for already compiled consumers.
+
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `MaximumRetainedResources` | 256 | LRU limit on resource keys, counting successful values and retry cooldowns. Zero disables both forms of retention. This is a key count, not a byte limit on deserialized objects. |
+| `MaximumDownloadBytes` | 64 MiB | Limit on bytes read from the HTTP body after handler decompression. Null disables the limit. |
+| `SerializerOptions` | null | When supplied, a copy is used for every remote/local JSON read and typed disk write, including converters. Null preserves the existing defaults described above. |
+
+The cache counts streamed bytes even when Content-Length is missing or inaccurate. Known oversized responses are rejected before reading their body; streamed responses stop after at most one byte beyond the limit. The existing readable local file remains available as fallback. HttpClient.Timeout covers both headers and body reads; caller cancellation still propagates separately from timeout fallback. HTTP charset and BOM decoding are preserved.
+
+```csharp
+var cache = new JsonResourceCache(
+    httpClient,
+    message => log.Info(message),
+    message => log.Warn(message),
+    options: new JsonResourceCacheOptions
+    {
+        MaximumRetainedResources = 128,
+        MaximumDownloadBytes = 8 * 1024 * 1024,
+        SerializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            AllowTrailingCommas = true,
+        },
+    }
+);
+await cache.InvalidateAsync(resourceKey, cancellationToken);
+```
+
+`InvalidateAsync` waits for the current operation on that key, then removes all its retained typed values and retry cooldown. It leaves disk files intact. Later calls may repopulate the key normally. `RetainedResourceCount` exposes the current number of retained keys. Resource gates are removed and disposed when the last owner/waiter leaves, including cancelled waiters; they do not accumulate for every key ever seen.
+
+LRU eviction affects reuse and retry timing, not the disk format. Callers keep ownership of their own data structures, HttpClient and game/session lifetime. Reusing a value elsewhere can keep it alive after cache eviction. Serializer options are copied, but custom converter objects should be treated as immutable/thread-safe as with System.Text.Json itself.
+
 ## Installation
 
 Copy `Utility.dll` next to the consuming mod. Do not copy `Il2CppInterop.Runtime.dll` from the build output; the active loader supplies its compatible runtime.

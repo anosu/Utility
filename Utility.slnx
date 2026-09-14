@@ -1,0 +1,5 @@
+<Solution>
+    <Project Path="src/Utility/Utility.csproj" />
+    <Project Path="tests/Utility.Lifecycle.Tests/Utility.Lifecycle.Tests.csproj" />
+    <Project Path="tests/Utility.Tests/Utility.Tests.csproj" />
+</Solution>

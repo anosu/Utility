@@ -40,3 +40,9 @@ vsix/
 
 lib
 res
+artifacts/
+**/bin/
+**/obj/
+*.local.slnx
+SharedDependencies.local.props
+Build.local.props

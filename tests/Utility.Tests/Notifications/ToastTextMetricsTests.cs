@@ -8,11 +8,7 @@ namespace Utility.Tests.Notifications
         [Fact]
         public void WideCharactersRequireMoreLinesThanAscii()
         {
-            int asciiLines = ToastTextMetrics.EstimateLineCount(
-                "abcdefghijklmnopqrst",
-                100f,
-                20
-            );
+            int asciiLines = ToastTextMetrics.EstimateLineCount("abcdefghijklmnopqrst", 100f, 20);
             int wideLines = ToastTextMetrics.EstimateLineCount(
                 "这是用于测试中文字符换行高度估算的消息内容",
                 100f,

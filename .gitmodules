@@ -1,0 +1,3 @@
+[submodule "shared/ModEngineering"]
+	path = shared/ModEngineering
+	url = https://github.com/anosu/ModEngineering.git

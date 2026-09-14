@@ -1,45 +1,19 @@
 # Utility
 
-Loader-neutral IL2CPP utilities for BepInEx and MelonLoader: toast notifications, diagnostics, and AssetBundle loading.
-
-## Build
-
-Requires .NET SDK 8 or newer.
+Shared IL2CPP runtime utilities for BepInEx and MelonLoader: Toast, assets/fonts, diagnostics, and pure .NET translation caching.
 
 ```sh
-dotnet test Utility.sln -c Release
+git submodule update --init --recursive
+python shared/ModEngineering/scripts/mod.py test
+python shared/ModEngineering/scripts/mod.py build
 ```
 
-The library targets .NET 6. Its seven compile-time Unity/Interop assemblies are tracked in `dependencies/interop`, so a fresh checkout builds without a game installation. These references are not deployment files; the game's loader supplies the runtime assemblies. `UnityProxyDir` can override the compile-time contract for compatibility testing.
+Source: `src/Utility`; tests: `tests/Utility.Tests` and `tests/Utility.Lifecycle.Tests`. The library targets .NET 6, while tests target .NET 8. The engineering SDK is pinned in `global.json`. Seven Unity compile-time references are tracked under `dependencies/interop`; they are not deployment files. Consumers must not replace these contracts with arbitrary game exports.
 
-## Use from a Mod
+`Utility.Translation.JsonResourceCache` contains no Unity calls. It merges requests, verifies caller-supplied protocol hashes, writes atomically, handles corrupt caches, propagates cancellation, and falls back to readable stale files. Games retain their own URL construction, manifests, loading policy and Toast messages. A cache instance represents one CDN/language session; callers own HttpClient.
 
-Add this repository as a submodule and reference `Utility/Utility.csproj` with `ProjectReference`. Building the Mod builds Utility and copies `Utility.dll` to the Mod's output directory automatically.
+Mods reference `shared/Utility/src/Utility/Utility.csproj` at a fixed Git commit. `SharedDependencies.local.props` can select a sibling checkout. CI uses pinned dependencies. Standard solutions include pinned projects; `scripts/solution.ps1 --local` generates an ignored solution containing the actual local projects and tests. Shared outputs are isolated for command-line builds; VS uses each loaded project's own output paths.
 
-Consumers can pass `SharedDependencyBuildRoot` through ProjectReference metadata to isolate the intermediate and output directories. Use a different absolute directory for each consuming repository when sharing a local Utility checkout.
+Engineering implementation now lives in [ModEngineering](shared/ModEngineering/README.md). `scripts/New-ModSolution.ps1` remains a forwarding entry point for existing users.
 
-Each Mod pins a tested submodule commit. Local development may opt into a sibling checkout through an ignored configuration file; CI must build the pinned commit.
-
-### Visual Studio
-
-Visual Studio restores and builds the projects loaded in the solution. Include
-the pinned Utility project (and Extension when used) in each Mod's standard solution.
-Standard Visual Studio solutions ignore machine-local shared source overrides.
-
-To edit a sibling Utility checkout, configure the Mod's
-`SharedDependencies.local.props`, then run from the Mod repository:
-
-```powershell
-pwsh -NoProfile -File shared/Utility/scripts/New-ModSolution.ps1 -Project GCMod/GCMod.csproj
-```
-
-Replace the project path with the Mod's actual project. Open the generated
-`<repository>.local.slnx` in Visual Studio 2022 17.14 or newer. The generator adds
-the actual shared projects selected by the local configuration. Keep this file
-out of Git and regenerate it when changing shared project paths.
-
-Visual Studio builds shared projects into their own `bin` and `obj` directories;
-reference metadata must use those same paths. Command-line project builds retain
-the per-Mod output isolation under `artifacts/shared`.
-
-See [docs/API.md](docs/API.md) for usage and runtime limitations.
+See [API](docs/API.md) for Unity runtime capabilities and limitations.

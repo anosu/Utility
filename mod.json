@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "repository": "Utility",
+  "github": "anosu/Utility",
+  "kind": "library",
+  "assembly": "Utility",
+  "project": "src/Utility/Utility.csproj",
+  "tests": [
+    "tests/Utility.Lifecycle.Tests/Utility.Lifecycle.Tests.csproj",
+    "tests/Utility.Tests/Utility.Tests.csproj"
+  ],
+  "useExtension": false,
+  "engineeringRevision": "b99f20c018d5d931e289c5dbf0fa1ea23fef97f9"
+}

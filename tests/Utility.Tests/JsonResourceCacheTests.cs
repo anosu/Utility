@@ -47,24 +47,31 @@ public sealed class JsonResourceCacheTests : IDisposable
     [Fact]
     public async Task CancelledRequestDoesNotStartCooldownOrPublishPartialData()
     {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int attempts = 0;
         using var handler = new Handler(async ct =>
         {
-            await Task.Delay(100, ct);
+            if (Interlocked.Increment(ref attempts) == 1)
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+            }
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
         });
         using var client = new HttpClient(handler);
         int failures = 0;
         var cache = Create(client, (_, _) => failures++);
-        using var cancellation = new CancellationTokenSource(20);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            cache.LoadAsync<Dictionary<string, string>>(
-                "names",
-                CachePath,
-                "https://example.test/names",
-                null,
-                cancellation.Token
-            )
+        using var cancellation = new CancellationTokenSource();
+        var pending = cache.LoadAsync<Dictionary<string, string>>(
+            "names",
+            CachePath,
+            "https://example.test/names",
+            null,
+            cancellation.Token
         );
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
         Assert.False(File.Exists(CachePath));
         Assert.Equal(0, failures);
         Assert.NotNull(

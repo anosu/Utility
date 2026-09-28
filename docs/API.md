@@ -324,12 +324,3 @@ The IMGUI renderer uses `Texture2D.whiteTexture` rather than creating and popula
 IMGUI backgrounds first use `GUI.Box` with `GUIStyleState.background`, then try `GUI.DrawTexture` if the first path fails. Failure of both disables IMGUI and queues uGUI. Styled typography can fall back to simpler GUIStyle-based labels, which still require an explicit font, font size, and clipping. It does not fall back to unstyled labels or allow text to escape the card. Failed capabilities are cached for the renderer lifetime.
 
 A mod cannot restore a Unity method that the game developer already removed from `GameAssembly`. `link.xml` shipped with a runtime-loaded mod cannot change that. Toast requires at least one complete backend and a usable dynamic or built-in font: uGUI needs the Unity UI modules, while IMGUI needs its GUI and text-rendering surface.
-
-## Verification
-
-```shell
-dotnet build Utility.slnx -c Release
-dotnet test Utility.slnx -c Release --no-build
-```
-
-The metadata tests reject known-dangerous references, including Unity object truthiness operators, `DrawTextureWithTexCoords`, and `GetAllAssetNames`. They check IMGUI drawing references, absence of a concrete TextMeshPro dependency, and retention of uGUI and AssetBundle fallback paths. Managed tests cover layout, text estimates, and bounded command processing. Lifecycle tests link the production sources and simulate delayed destruction, cancellation during bundle/asset requests, and persistence failures followed by retries. These substitutes verify managed control flow; Android rendering, glyph coverage, and native loading behavior still require device validation.

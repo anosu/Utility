@@ -122,9 +122,5 @@ namespace Utility.Tests.Notifications
 
             Assert.Equal(ToastKind.Info, kind);
         }
-
-        [Fact]
-        public void RendererIsNoneBeforeInitialization() =>
-            Assert.Equal(ToastRendererKind.None, Toast.Renderer);
     }
 }

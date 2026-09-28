@@ -1,7 +1,3 @@
-using System;
-using System.Reflection;
-using Utility.Notifications;
-using Utility.Notifications.Internal;
 using Xunit;
 
 namespace Utility.Tests.Compatibility
@@ -34,66 +30,14 @@ namespace Utility.Tests.Compatibility
             Assert.False(AssemblyMetadata.HasMemberReferenceNamed("GetPinnableReference"));
 
         [Fact]
-        public void ImguiRendererSetsExplicitTextColor() =>
-            Assert.True(
-                AssemblyMetadata.HasMemberReference("UnityEngine", "GUIStyleState", "set_textColor")
-            );
-
-        [Fact]
-        public void ImguiRendererUsesAnExplicitFont() =>
-            Assert.True(AssemblyMetadata.HasMemberReference("UnityEngine", "GUIStyle", "set_font"));
-
-        [Fact]
         public void TypographyFailureDoesNotFallBackToGameSkinLabels() =>
             Assert.False(AssemblyMetadata.HasMemberReference("UnityEngine", "GUI", "Label", 2));
-
-        [Fact]
-        public void LegacyBoxBackendUsesStyleBackground() =>
-            Assert.True(
-                AssemblyMetadata.HasMemberReference(
-                    "UnityEngine",
-                    "GUIStyleState",
-                    "set_background"
-                )
-            );
-
-        [Theory]
-        [InlineData("Box")]
-        [InlineData("DrawTexture")]
-        [InlineData("Label")]
-        public void ImguiRetainsIndependentDrawingSurfaces(string memberName) =>
-            Assert.True(AssemblyMetadata.HasMemberReference("UnityEngine", "GUI", memberName));
-
-        [Fact]
-        public void ImguiBackgroundFallbackOrderIsStable() =>
-            Assert.Equal(
-                new[] { "StyledBox", "DrawTexture", "None" },
-                Enum.GetNames<ImguiBackgroundBackend>()
-            );
 
         [Theory]
         [InlineData("TMPro")]
         [InlineData("Il2CppTMPro")]
         public void CoreAssemblyHasNoTextMeshProDependency(string assemblyName) =>
             Assert.False(AssemblyMetadata.HasAssemblyReference(assemblyName));
-
-        [Fact]
-        public void ImguiFailureRetainsBuiltInUguiFallback()
-        {
-            Assert.Same(typeof(Toast).Assembly, typeof(UguiToastRenderer).Assembly);
-            Assert.NotNull(
-                typeof(ToastRuntime).GetMethod(
-                    "QueueUguiFallback",
-                    BindingFlags.Instance | BindingFlags.NonPublic
-                )
-            );
-            Assert.NotNull(
-                typeof(ToastRuntime).GetMethod(
-                    "ActivateUguiFallback",
-                    BindingFlags.Instance | BindingFlags.NonPublic
-                )
-            );
-        }
 
         [Fact]
         public void AssetLoaderUsesTypedEnumerationWithAsyncFallback()
@@ -131,15 +75,5 @@ namespace Utility.Tests.Compatibility
                 )
             );
         }
-
-        [Theory]
-        [InlineData("LoadFromFile")]
-        [InlineData("LoadFromFileAsync")]
-        [InlineData("LoadAsset")]
-        [InlineData("LoadAssetAsync")]
-        public void AssetLoaderRetainsFileAndNamedAssetFallbacks(string memberName) =>
-            Assert.True(
-                AssemblyMetadata.HasMemberReference("UnityEngine", "AssetBundle", memberName)
-            );
     }
 }

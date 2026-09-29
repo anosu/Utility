@@ -71,42 +71,51 @@ namespace Utility.Notifications.Internal
             if (index < 0 || index >= RoundedBandCount)
                 throw new ArgumentOutOfRangeException(nameof(index));
 
+            float snappedHeight = RoundToPixel(height);
             float radius = Math.Min(
                 RoundToPixel(8f * spacingScale),
-                Math.Min(width, height) * 0.5f
+                Math.Min(width, snappedHeight) * 0.5f
             );
             float edgeBandHeight = radius * 0.25f;
-            bandHeight = edgeBandHeight;
+            float firstEdge = RoundToPixel(edgeBandHeight);
+            float secondEdge = RoundToPixel(edgeBandHeight * 2f);
+            float thirdEdge = RoundToPixel(edgeBandHeight * 3f);
             switch (index)
             {
                 case 0:
                     top = 0f;
-                    inset = radius * 0.75f;
+                    bandHeight = firstEdge;
+                    inset = RoundToPixel(radius * 0.75f);
                     break;
                 case 1:
-                    top = edgeBandHeight;
-                    inset = radius * 0.375f;
+                    top = firstEdge;
+                    bandHeight = secondEdge - firstEdge;
+                    inset = RoundToPixel(radius * 0.375f);
                     break;
                 case 2:
-                    top = edgeBandHeight * 2f;
-                    inset = radius * 0.125f;
+                    top = secondEdge;
+                    bandHeight = thirdEdge - secondEdge;
+                    inset = RoundToPixel(radius * 0.125f);
                     break;
                 case 3:
-                    top = edgeBandHeight * 3f;
-                    bandHeight = Math.Max(0f, height - edgeBandHeight * 6f);
+                    top = thirdEdge;
+                    bandHeight = Math.Max(0f, snappedHeight - thirdEdge * 2f);
                     inset = 0f;
                     break;
                 case 4:
-                    top = height - edgeBandHeight * 3f;
-                    inset = radius * 0.125f;
+                    top = snappedHeight - thirdEdge;
+                    bandHeight = thirdEdge - secondEdge;
+                    inset = RoundToPixel(radius * 0.125f);
                     break;
                 case 5:
-                    top = height - edgeBandHeight * 2f;
-                    inset = radius * 0.375f;
+                    top = snappedHeight - secondEdge;
+                    bandHeight = secondEdge - firstEdge;
+                    inset = RoundToPixel(radius * 0.375f);
                     break;
                 default:
-                    top = height - edgeBandHeight;
-                    inset = radius * 0.75f;
+                    top = snappedHeight - firstEdge;
+                    bandHeight = firstEdge;
+                    inset = RoundToPixel(radius * 0.75f);
                     break;
             }
         }

@@ -23,7 +23,7 @@ namespace Utility.Notifications.Internal
             {
                 try
                 {
-                    Font font = CreateAndroidFont();
+                    Font font = CreateSystemFont(isAndroid: true);
                     _font = font;
                     _ownsFont = true;
                     Logging.Write(
@@ -64,6 +64,25 @@ namespace Utility.Notifications.Internal
                 }
             }
 
+            if (!ToastPlatform.IsAndroid)
+            {
+                try
+                {
+                    Font font = CreateSystemFont(isAndroid: false);
+                    _font = font;
+                    _ownsFont = true;
+                    Logging.Write(LogLevel.Information, "Toast", "Using a desktop system font.");
+                    return font;
+                }
+                catch (Exception exception)
+                {
+                    lastError =
+                        lastError == null
+                            ? exception
+                            : new AggregateException(lastError, exception);
+                }
+            }
+
             throw new InvalidOperationException(
                 "No compatible toast font is available.",
                 lastError
@@ -81,24 +100,24 @@ namespace Utility.Notifications.Internal
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static Font CreateAndroidFont()
+        private static Font CreateSystemFont(bool isAndroid)
         {
-            // Fixed family order gives the same device the same choice across games.
-            // Include CJK families for the Chinese and Japanese notification text.
             Font font = Font.CreateDynamicFontFromOSFont(
-                new[]
-                {
-                    "Noto Sans CJK SC",
-                    "Noto Sans CJK JP",
-                    "Noto Sans SC",
-                    "Noto Sans",
-                    "Roboto",
-                    "sans-serif",
-                },
+                isAndroid
+                    ? new[]
+                    {
+                        "Noto Sans CJK SC",
+                        "Noto Sans CJK JP",
+                        "Noto Sans SC",
+                        "Noto Sans",
+                        "Roboto",
+                        "sans-serif",
+                    }
+                    : new[] { "Arial", "Noto Sans", "sans-serif" },
                 16
             );
             if (ReferenceEquals(font, null))
-                throw new InvalidOperationException("Unity did not create the Android toast font.");
+                throw new InvalidOperationException("Unity did not create a system toast font.");
             try
             {
                 font.hideFlags = HideFlags.HideAndDontSave;

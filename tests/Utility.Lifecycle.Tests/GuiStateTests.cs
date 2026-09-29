@@ -44,6 +44,22 @@ namespace Utility.Lifecycle.Tests
             Assert.False(GUI.enabled);
             Assert.Equal(7, GUI.matrix.Marker);
         }
+
+        [Fact]
+        public void MissingBackgroundTintStillAllowsTextureRendering()
+        {
+            GUI.ThrowOnBackgroundColor = true;
+            try
+            {
+                using var scope = new ToastGuiState();
+                Assert.False(scope.CanUseStyledBox);
+                Assert.Equal(new Color(1f, 1f, 1f, 1f), GUI.color);
+            }
+            finally
+            {
+                GUI.ThrowOnBackgroundColor = false;
+            }
+        }
     }
 }
 
@@ -59,9 +75,24 @@ namespace UnityEngine
 
     public static class GUI
     {
+        private static Color _backgroundColor;
+
+        public static bool ThrowOnBackgroundColor { get; set; }
         public static Color color { get; set; }
         public static Color contentColor { get; set; }
-        public static Color backgroundColor { get; set; }
+        public static Color backgroundColor
+        {
+            get =>
+                ThrowOnBackgroundColor
+                    ? throw new MissingMethodException("GUI.backgroundColor getter was stripped.")
+                    : _backgroundColor;
+            set
+            {
+                if (ThrowOnBackgroundColor)
+                    throw new MissingMethodException("GUI.backgroundColor setter was stripped.");
+                _backgroundColor = value;
+            }
+        }
         public static Matrix4x4 matrix { get; set; }
         public static bool enabled { get; set; }
     }

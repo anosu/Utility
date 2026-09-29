@@ -330,7 +330,33 @@ namespace Utility.Tests.Notifications
                 Assert.True(bandHeight >= 0f);
                 previousEnd = top + bandHeight;
             }
-            Assert.Equal(height, previousEnd);
+            Assert.Equal(ToastMetrics.RoundToPixel(height), previousEnd);
+        }
+
+        [Theory]
+        [InlineData(105f, 1f)]
+        [InlineData(236f, 2.25f)]
+        [InlineData(148.25f, 1.6f)]
+        public void RoundedBandEdgesLandOnPixels(float height, float scale)
+        {
+            float previousEnd = 0f;
+            for (int i = 0; i < ToastMetrics.RoundedBandCount; i++)
+            {
+                ToastMetrics.GetRoundedBand(
+                    425f,
+                    height,
+                    i,
+                    out float top,
+                    out float bandHeight,
+                    out float inset,
+                    scale
+                );
+                Assert.Equal(previousEnd, top);
+                Assert.Equal(ToastMetrics.RoundToPixel(top), top);
+                Assert.Equal(ToastMetrics.RoundToPixel(inset), inset);
+                previousEnd = top + bandHeight;
+            }
+            Assert.Equal(ToastMetrics.RoundToPixel(height), previousEnd);
         }
 
         private static ToastLayout CreateFullHdLayout()

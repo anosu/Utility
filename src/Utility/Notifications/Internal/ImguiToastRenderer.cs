@@ -46,6 +46,15 @@ namespace Utility.Notifications.Internal
                 return;
 
             using var guiState = new ToastGuiState();
+            if (!guiState.CanUseStyledBox && _backgroundBackend == ImguiBackgroundBackend.StyledBox)
+            {
+                _backgroundBackend = ImguiBackgroundBackend.DrawTexture;
+                Logging.Write(
+                    LogLevel.Warning,
+                    "Toast",
+                    "GUI.backgroundColor is unavailable; using GUI.DrawTexture backgrounds."
+                );
+            }
             RenderContents(active, style, layout);
         }
 
@@ -259,6 +268,13 @@ namespace Utility.Notifications.Internal
             float alpha
         )
         {
+            float right = ToastMetrics.RoundToPixel(x + width);
+            float bottom = ToastMetrics.RoundToPixel(y + height);
+            x = ToastMetrics.RoundToPixel(x);
+            y = ToastMetrics.RoundToPixel(y);
+            width = Math.Max(1f, right - x);
+            height = Math.Max(1f, bottom - y);
+
             while (true)
             {
                 try

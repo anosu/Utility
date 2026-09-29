@@ -10,6 +10,10 @@
             Link="Production/ToastGuiState.cs"
         />
         <Compile
+            Include="../../src/Utility/Notifications/Internal/ToastCanvasSetup.cs"
+            Link="Production/ToastCanvasSetup.cs"
+        />
+        <Compile
             Include="../../src/Utility/Assets/AssetBundleLoader.cs"
             Link="Production/AssetBundleLoader.cs"
         />

@@ -33,9 +33,7 @@ namespace Utility.Notifications.Internal
                 _root.transform.SetParent(host, worldPositionStays: false);
 
                 Canvas canvas = GetRequiredComponent<Canvas>(_root);
-                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-                canvas.overrideSorting = true;
-                canvas.sortingOrder = 32760;
+                ToastCanvasSetup.Configure(canvas);
             }
             catch
             {
@@ -185,17 +183,25 @@ namespace Utility.Notifications.Internal
             card.Rect.anchorMin = new Vector2(anchorX, bottom ? 0f : 1f);
             card.Rect.anchorMax = card.Rect.anchorMin;
             card.Rect.pivot = new Vector2(anchorX, bottom ? 0f : 1f);
-            card.Rect.anchoredPosition = new Vector2(positionX, positionY);
-            card.Rect.sizeDelta = new Vector2(layout.Width, card.Height);
+            float snappedY = ToastMetrics.RoundToPixel(positionY);
+            float bottomY = ToastMetrics.RoundToPixel(
+                bottom ? positionY + card.Height : positionY - card.Height
+            );
+            float drawnHeight = Math.Abs(bottomY - snappedY);
+            card.Rect.anchoredPosition = new Vector2(
+                ToastMetrics.RoundToPixel(positionX),
+                snappedY
+            );
+            card.Rect.sizeDelta = new Vector2(layout.Width, drawnHeight);
 
             PositionBackgroundBands(
                 card.BackgroundBands,
                 layout.Width,
-                card.Height,
+                drawnHeight,
                 layout.SpacingScale
             );
 
-            float accentInset = Math.Min(layout.CornerRadius, card.Height * 0.5f);
+            float accentInset = Math.Min(layout.CornerRadius, drawnHeight * 0.5f);
             RectTransform accentRect = card.Accent.rectTransform;
             accentRect.offsetMin = new Vector2(0f, accentInset);
             accentRect.offsetMax = new Vector2(
@@ -209,7 +215,7 @@ namespace Utility.Notifications.Internal
             SetTopRect(
                 card.Body.rectTransform,
                 bodyTop,
-                ToastMetrics.CalculateMessageHeight(card.Height, bodyTop, layout),
+                ToastMetrics.CalculateMessageHeight(drawnHeight, bodyTop, layout),
                 layout
             );
         }

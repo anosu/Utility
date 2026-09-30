@@ -21,8 +21,8 @@ namespace Utility.Notifications
 
         /// <summary>Gets the renderer currently selected by the toast system.</summary>
         /// <remarks>
-        /// IMGUI is preferred and falls back to the built-in uGUI renderer when its compatible
-        /// drawing paths fail.
+        /// Android View is preferred on supported Android installations. Other platforms use
+        /// IMGUI, with uGUI as a fallback when its compatible drawing paths fail.
         /// </remarks>
         public static ToastRendererKind Renderer => ToastRuntime.Shared.RendererKind;
 

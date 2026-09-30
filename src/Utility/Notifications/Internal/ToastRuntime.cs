@@ -29,7 +29,8 @@ namespace Utility.Notifications.Internal
         internal int Count => _commands.Count;
 
         internal ToastRendererKind RendererKind =>
-            _frameRenderer != null ? ToastRendererKind.Ugui
+            _frameRenderer is AndroidToastRenderer ? ToastRendererKind.AndroidView
+            : _frameRenderer != null ? ToastRendererKind.Ugui
             : _imguiRenderer != null ? ToastRendererKind.Imgui
             : ToastRendererKind.None;
 
@@ -53,7 +54,7 @@ namespace Utility.Notifications.Internal
             _commands.RunExclusive(commands =>
             {
                 ApplyCommands(commands, style);
-                layout = ToastLayoutProvider.Calculate(style);
+                layout = CalculateLayout(style);
                 _layout = layout;
                 _hasLayout = true;
                 DeferOverflow(layout.MaximumVisible);
@@ -86,7 +87,10 @@ namespace Utility.Notifications.Internal
             }
             catch (Exception exception)
             {
-                DisableUgui(exception);
+                if (_frameRenderer is AndroidToastRenderer)
+                    DisableAndroidView(exception);
+                else
+                    DisableUgui(exception);
             }
         }
 
@@ -124,6 +128,30 @@ namespace Utility.Notifications.Internal
             _backendError = null;
             _hasLayout = false;
             _uguiFallbackPending = false;
+
+            if (ToastPlatform.IsAndroid)
+            {
+                try
+                {
+                    _frameRenderer = new AndroidToastRenderer();
+                    Logging.Write(
+                        LogLevel.Information,
+                        "Toast",
+                        "Using the Android View renderer."
+                    );
+                    return;
+                }
+                catch (Exception exception)
+                {
+                    _backendError = exception;
+                    Logging.WriteRecoverable(
+                        LogLevel.Warning,
+                        "Toast",
+                        "Android View rendering is unavailable; trying IMGUI.",
+                        exception
+                    );
+                }
+            }
 
             _imguiRenderer = new ImguiToastRenderer();
             Logging.Write(LogLevel.Information, "Toast", "Using the IMGUI renderer.");
@@ -221,6 +249,42 @@ namespace Utility.Notifications.Internal
             _active.RemoveRange(maximumVisible, _active.Count - maximumVisible);
             while (reordered.Count > 0)
                 _waiting.Enqueue(reordered.Dequeue());
+        }
+
+        private ToastLayout CalculateLayout(ToastTheme style)
+        {
+            if (
+                _frameRenderer is AndroidToastRenderer android
+                && android.TryReadViewport(
+                    out ToastSafeArea safeArea,
+                    out int width,
+                    out int height
+                )
+            )
+                return ToastLayoutProvider.Calculate(style, safeArea, width, height, 1f, true);
+            return ToastLayoutProvider.Calculate(style);
+        }
+
+        private void DisableAndroidView(Exception exception)
+        {
+            try
+            {
+                _frameRenderer?.Dispose();
+            }
+            catch (Exception disposeException)
+            {
+                exception = new AggregateException(exception, disposeException);
+            }
+            _frameRenderer = null;
+            _backendError = exception;
+            _hasLayout = false;
+            _imguiRenderer = new ImguiToastRenderer();
+            Logging.WriteRecoverable(
+                LogLevel.Warning,
+                "Toast",
+                "Android View rendering failed; switched to IMGUI.",
+                exception
+            );
         }
 
         private void QueueUguiFallback(Exception exception)

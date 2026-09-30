@@ -39,4 +39,18 @@
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
     </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource
+            Include="$(ModRepositoryRoot)android/build/classes.dex"
+            LogicalName="Utility.Toast.classes.dex"
+        />
+        <EmbeddedResource
+            Include="$(ModRepositoryRoot)android/build/arm64-v8a/libutilitytoast.so"
+            LogicalName="Utility.Toast.arm64.so"
+        />
+        <EmbeddedResource
+            Include="$(ModRepositoryRoot)android/build/armeabi-v7a/libutilitytoast.so"
+            LogicalName="Utility.Toast.arm.so"
+        />
+    </ItemGroup>
 </Project>

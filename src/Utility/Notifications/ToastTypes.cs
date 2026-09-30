@@ -49,5 +49,8 @@ namespace Utility.Notifications
 
         /// <summary>The optional Canvas-based Unity UI renderer is active.</summary>
         Ugui,
+
+        /// <summary>The Android Activity view renderer is active.</summary>
+        AndroidView,
     }
 }

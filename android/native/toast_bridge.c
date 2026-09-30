@@ -167,6 +167,26 @@ __attribute__((visibility("default"))) int toast_present(const uint8_t *data, in
     return ok;
 }
 
+__attribute__((visibility("default"))) int toast_maintain(void) {
+    if (!helper) return 0;
+    int attached;
+    JNIEnv *env = environment(&attached);
+    if (!env) return 2;
+    jobject current_activity = activity(env);
+    if (!current_activity) {
+        release_environment(attached);
+        return 2;
+    }
+    jmethodID method = (*env)->GetStaticMethodID(env, helper, "maintain", "(Landroid/app/Activity;)V");
+    if (method)
+        (*env)->CallStaticVoidMethod(env, helper, method, current_activity);
+    int failed = clear_exception(env);
+    int ok = method && !failed;
+    (*env)->DeleteLocalRef(env, current_activity);
+    release_environment(attached);
+    return ok;
+}
+
 __attribute__((visibility("default"))) int toast_viewport(int *values) {
     if (!helper || !values) return 0;
     int attached;

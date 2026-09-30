@@ -23,6 +23,20 @@ namespace Utility.Tests.Notifications
         }
 
         [Fact]
+        public void PendingConfigurationIsVisibleWithoutQueuedNotifications()
+        {
+            var queue = new ToastCommandQueue();
+            queue.EnqueueConfigure(
+                new ToastSettingsPatch(360f, null, null, null, null, null, null, null)
+            );
+
+            Assert.Equal(0, queue.Count);
+            Assert.True(queue.HasPending);
+            queue.RunExclusive(commands => commands.Clear());
+            Assert.False(queue.HasPending);
+        }
+
+        [Fact]
         public void RepeatedClearsDiscardObsoleteCommands()
         {
             var queue = new ToastCommandQueue();

@@ -65,6 +65,15 @@ namespace Utility.Notifications.Internal
             }
         }
 
+        internal bool HasPending
+        {
+            get
+            {
+                lock (_gate)
+                    return _commands.Count != 0;
+            }
+        }
+
         internal bool EnqueueShow(string title, string message, ToastKind kind, float duration)
         {
             lock (_gate)

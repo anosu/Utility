@@ -12,12 +12,21 @@ namespace Utility.Notifications.Internal
     internal sealed class AndroidToastRenderer : IFrameToastRenderer
     {
         private const string DexResource = "Utility.Toast.classes.dex";
+        private const long HealthIntervalMilliseconds = 500;
         private readonly IntPtr _library;
         private readonly Present _present;
+        private readonly Maintain _maintain;
         private readonly Viewport _viewport;
         private readonly Stop _stop;
-        private byte[]? _lastSnapshot;
-        private bool _lastWasEmpty = true;
+        private readonly IntPtr _viewportBuffer;
+        private readonly ToastItem?[] _lastItems = new ToastItem?[ToastRuntime.Capacity];
+        private readonly float[] _lastAlphas = new float[ToastRuntime.Capacity];
+        private bool _hasSnapshot;
+        private ToastTheme? _lastTheme;
+        private ToastLayout _lastLayout;
+        private int _lastThemeVersion;
+        private int _lastCount;
+        private long _nextHealthCheck;
 
         internal AndroidToastRenderer()
         {
@@ -34,6 +43,7 @@ namespace Utility.Notifications.Internal
             {
                 var start = Load<Start>("toast_start");
                 _present = Load<Present>("toast_present");
+                _maintain = Load<Maintain>("toast_maintain");
                 _viewport = Load<Viewport>("toast_viewport");
                 _stop = Load<Stop>("toast_stop");
                 cleanup = _stop;
@@ -55,6 +65,7 @@ namespace Utility.Notifications.Internal
                 {
                     handle.Free();
                 }
+                _viewportBuffer = Marshal.AllocHGlobal(sizeof(int) * 6);
             }
             catch
             {
@@ -66,28 +77,41 @@ namespace Utility.Notifications.Internal
 
         internal bool TryReadViewport(out ToastSafeArea safeArea, out int width, out int height)
         {
-            var values = new int[6];
-            GCHandle handle = GCHandle.Alloc(values, GCHandleType.Pinned);
-            try
+            if (_viewport(_viewportBuffer) == 0)
             {
-                if (_viewport(handle.AddrOfPinnedObject()) == 0 || values[0] <= 0 || values[1] <= 0)
-                {
-                    safeArea = default;
-                    width = height = 0;
-                    return false;
-                }
-            }
-            finally
-            {
-                handle.Free();
+                safeArea = default;
+                width = height = 0;
+                return false;
             }
 
-            width = values[0];
-            height = values[1];
-            int left = Math.Clamp(values[2], 0, width - 1);
-            int top = Math.Clamp(values[3], 0, height - 1);
-            int right = Math.Clamp(values[4], 0, width - left - 1);
-            int bottom = Math.Clamp(values[5], 0, height - top - 1);
+            width = Marshal.ReadInt32(_viewportBuffer);
+            height = Marshal.ReadInt32(_viewportBuffer, sizeof(int));
+            if (width <= 0 || height <= 0)
+            {
+                safeArea = default;
+                width = height = 0;
+                return false;
+            }
+            int left = Math.Clamp(
+                Marshal.ReadInt32(_viewportBuffer, sizeof(int) * 2),
+                0,
+                width - 1
+            );
+            int top = Math.Clamp(
+                Marshal.ReadInt32(_viewportBuffer, sizeof(int) * 3),
+                0,
+                height - 1
+            );
+            int right = Math.Clamp(
+                Marshal.ReadInt32(_viewportBuffer, sizeof(int) * 4),
+                0,
+                width - left - 1
+            );
+            int bottom = Math.Clamp(
+                Marshal.ReadInt32(_viewportBuffer, sizeof(int) * 5),
+                0,
+                height - top - 1
+            );
             safeArea = new ToastSafeArea(left, bottom, width - left - right, height - top - bottom);
             return true;
         }
@@ -98,22 +122,85 @@ namespace Utility.Notifications.Internal
             ToastLayout layout
         )
         {
-            if (active.Count == 0 && _lastWasEmpty)
+            if (active.Count == 0 && _lastCount == 0)
                 return;
+            long now = Environment.TickCount64;
+            if (HasSameSnapshotState(active, style, layout))
+            {
+                if (active.Count == 0 || now < _nextHealthCheck)
+                    return;
+                if (_maintain() == 0)
+                    throw new InvalidOperationException("Android toast view health check failed.");
+                _nextHealthCheck = now + HealthIntervalMilliseconds;
+                return;
+            }
+
             byte[] bytes = CreateSnapshot(active, style, layout);
-            if (_lastSnapshot != null && bytes.AsSpan().SequenceEqual(_lastSnapshot))
-                return;
+            PresentSnapshot(bytes);
+            RememberSnapshotState(active, style, layout);
+            _hasSnapshot = true;
+            _nextHealthCheck = now + HealthIntervalMilliseconds;
+        }
+
+        private void PresentSnapshot(byte[] bytes)
+        {
             GCHandle handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
             try
             {
                 if (_present(handle.AddrOfPinnedObject(), bytes.Length) == 0)
                     throw new InvalidOperationException("Android toast view rejected a frame.");
-                _lastSnapshot = bytes;
-                _lastWasEmpty = active.Count == 0;
             }
             finally
             {
                 handle.Free();
+            }
+        }
+
+        private bool HasSameSnapshotState(
+            IReadOnlyList<ToastItem> active,
+            ToastTheme style,
+            ToastLayout layout
+        )
+        {
+            if (
+                !_hasSnapshot
+                || !ReferenceEquals(_lastTheme, style)
+                || _lastThemeVersion != style.Version
+                || _lastCount != active.Count
+                || _lastLayout.Width != layout.Width
+                || _lastLayout.MinimumHeight != layout.MinimumHeight
+                || _lastLayout.Margin != layout.Margin
+                || _lastLayout.Gap != layout.Gap
+                || _lastLayout.TitleSize != layout.TitleSize
+                || _lastLayout.TextSize != layout.TextSize
+                || _lastLayout.SpacingScale != layout.SpacingScale
+            )
+                return false;
+
+            for (int i = 0; i < active.Count; i++)
+            {
+                if (!ReferenceEquals(_lastItems[i], active[i]) || _lastAlphas[i] != active[i].Alpha)
+                    return false;
+            }
+            return true;
+        }
+
+        private void RememberSnapshotState(
+            IReadOnlyList<ToastItem> active,
+            ToastTheme style,
+            ToastLayout layout
+        )
+        {
+            for (int i = active.Count; i < _lastCount; i++)
+                _lastItems[i] = null;
+            _lastTheme = style;
+            _lastThemeVersion = style.Version;
+            _lastLayout = layout;
+            _lastCount = active.Count;
+            for (int i = 0; i < active.Count; i++)
+            {
+                _lastItems[i] = active[i];
+                _lastAlphas[i] = active[i].Alpha;
             }
         }
 
@@ -161,8 +248,15 @@ namespace Utility.Notifications.Internal
 
         public void Dispose()
         {
-            _stop();
-            NativeLibrary.Free(_library);
+            try
+            {
+                _stop();
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(_viewportBuffer);
+                NativeLibrary.Free(_library);
+            }
         }
 
         private T Load<T>(string name)
@@ -246,6 +340,9 @@ namespace Utility.Notifications.Internal
         private delegate int Present(IntPtr bytes, int length);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int Maintain();
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int Viewport(IntPtr values);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -259,7 +356,7 @@ namespace Utility.Notifications.Internal
             Status = status;
 
         internal int Status { get; }
-        internal bool CanRetry => Status is -1 or -2 or -3;
+        internal bool CanRetry => Status is -1 or -2 or -3 or -5;
 
         private static string Describe(int status) =>
             status switch

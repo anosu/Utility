@@ -29,26 +29,92 @@ import org.json.JSONObject;
 /** Draws toast cards in the Activity's pixel-resolution view hierarchy. */
 public final class ToastOverlayBridge {
     private static final Handler UI = new Handler(Looper.getMainLooper());
-    private static final AtomicReference<Update> PENDING = new AtomicReference<>();
     private static volatile int[] viewport = new int[6];
+    private static Update pending;
+    private static Activity maintenanceActivity;
     private static Activity activity;
     private static Overlay overlay;
     private static View host;
     private static boolean scheduled;
+    private static boolean maintenanceScheduled;
+    private static Snapshot latestSnapshot;
     private static volatile RuntimeException failure;
+    private static volatile int generation;
+    private static final Runnable APPLY = new Runnable() {
+        @Override public void run() {
+            Update update;
+            synchronized (ToastOverlayBridge.class) {
+                update = pending;
+                pending = null;
+                scheduled = false;
+            }
+            if (update == null || update.generation != generation) return;
+            try {
+                Snapshot snapshot = Snapshot.parse(
+                        new JSONObject(new String(update.json, StandardCharsets.UTF_8)));
+                latestSnapshot = snapshot;
+                if (update.activity.isFinishing()) return;
+                attach(update.activity);
+                if (overlay != null) overlay.setSnapshot(snapshot);
+            } catch (JSONException exception) {
+                if (update.generation == generation)
+                    failure = new IllegalArgumentException("Invalid toast snapshot", exception);
+            } catch (RuntimeException exception) {
+                if (update.generation == generation) failure = exception;
+            }
+        }
+    };
+    private static final Runnable MAINTAIN = new Runnable() {
+        @Override public void run() {
+            Activity current;
+            int requestedGeneration;
+            synchronized (ToastOverlayBridge.class) {
+                current = maintenanceActivity;
+                requestedGeneration = generation;
+                maintenanceActivity = null;
+                maintenanceScheduled = false;
+            }
+            if (current == null || requestedGeneration != generation || current.isFinishing()) return;
+            try {
+                Overlay previous = overlay;
+                attach(current);
+                if (overlay != previous && overlay != null && latestSnapshot != null)
+                    overlay.setSnapshot(latestSnapshot);
+            } catch (RuntimeException exception) {
+                if (requestedGeneration == generation) failure = exception;
+            }
+        }
+    };
 
     private ToastOverlayBridge() {}
 
     public static void start(final Activity current) throws InterruptedException {
+        synchronized (ToastOverlayBridge.class) {
+            generation++;
+            pending = null;
+            maintenanceActivity = null;
+            scheduled = false;
+            maintenanceScheduled = false;
+        }
+        UI.removeCallbacks(APPLY);
+        UI.removeCallbacks(MAINTAIN);
         if (Looper.myLooper() == Looper.getMainLooper()) {
+            latestSnapshot = null;
+            detach();
             attach(current);
+            failure = null;
             return;
         }
         final CountDownLatch ready = new CountDownLatch(1);
         final AtomicReference<RuntimeException> error = new AtomicReference<>();
         if (!UI.post(new Runnable() {
             @Override public void run() {
-                try { attach(current); }
+                try {
+                    latestSnapshot = null;
+                    detach();
+                    attach(current);
+                    failure = null;
+                }
                 catch (RuntimeException exception) { error.set(exception); }
                 finally { ready.countDown(); }
             }
@@ -60,34 +126,54 @@ public final class ToastOverlayBridge {
             throw new IllegalStateException("Android toast view was not attached");
     }
 
-    public static void present(final Activity current, byte[] json) throws JSONException {
+    public static void present(final Activity current, byte[] json) {
         if (failure != null) throw failure;
-        final Snapshot snapshot = Snapshot.parse(new JSONObject(new String(json, StandardCharsets.UTF_8)));
-        PENDING.set(new Update(current, snapshot));
         synchronized (ToastOverlayBridge.class) {
+            pending = new Update(current, json, generation);
             if (scheduled) return;
             scheduled = true;
-        }
-        UI.post(new Runnable() {
-            @Override public void run() {
-                Update update = PENDING.getAndSet(null);
-                synchronized (ToastOverlayBridge.class) { scheduled = false; }
-                if (update == null) return;
-                try {
-                    attach(update.activity);
-                    if (overlay != null) overlay.setSnapshot(update.snapshot);
-                } catch (RuntimeException exception) { failure = exception; }
+            if (!UI.post(APPLY)) {
+                pending = null;
+                scheduled = false;
+                throw new IllegalStateException("Android UI thread rejected toast frame");
             }
-        });
+        }
     }
 
-    public static int[] viewport() { return viewport.clone(); }
+    public static void maintain(Activity current) {
+        if (failure != null) throw failure;
+        synchronized (ToastOverlayBridge.class) {
+            maintenanceActivity = current;
+            if (maintenanceScheduled) return;
+            maintenanceScheduled = true;
+            if (!UI.post(MAINTAIN)) {
+                maintenanceActivity = null;
+                maintenanceScheduled = false;
+                throw new IllegalStateException("Android UI thread rejected toast maintenance");
+            }
+        }
+    }
+
+    public static int[] viewport() { return viewport; }
 
     public static void stop() {
-        PENDING.set(null);
-        failure = null;
+        final int stoppedGeneration;
+        synchronized (ToastOverlayBridge.class) {
+            stoppedGeneration = ++generation;
+            pending = null;
+            maintenanceActivity = null;
+            scheduled = false;
+            maintenanceScheduled = false;
+        }
+        UI.removeCallbacks(APPLY);
+        UI.removeCallbacks(MAINTAIN);
         UI.post(new Runnable() {
-            @Override public void run() { detach(); }
+            @Override public void run() {
+                if (stoppedGeneration != generation) return;
+                latestSnapshot = null;
+                failure = null;
+                detach();
+            }
         });
     }
 
@@ -183,10 +269,12 @@ public final class ToastOverlayBridge {
 
     private static final class Update {
         final Activity activity;
-        final Snapshot snapshot;
-        Update(Activity activity, Snapshot snapshot) {
+        final byte[] json;
+        final int generation;
+        Update(Activity activity, byte[] json, int generation) {
             this.activity = activity;
-            this.snapshot = snapshot;
+            this.json = json;
+            this.generation = generation;
         }
     }
 
@@ -240,8 +328,13 @@ public final class ToastOverlayBridge {
         private Snapshot snapshot;
         private String[] measuredMessages = new String[0];
         private StaticLayout[] measuredLayouts = new StaticLayout[0];
+        private String[] titleInputs = new String[0];
+        private String[] fittedTitles = new String[0];
+        private float[] heights = new float[0];
         private int measuredTextSize;
         private int measuredContentWidth;
+        private int fittedTitleSize;
+        private float fittedTitleWidth;
 
         Overlay(Activity activity) {
             super(activity);
@@ -270,6 +363,13 @@ public final class ToastOverlayBridge {
 
         void setSnapshot(Snapshot value) {
             snapshot = value;
+            if (value.cards.length == 0) {
+                measuredMessages = new String[0];
+                measuredLayouts = new StaticLayout[0];
+                titleInputs = new String[0];
+                fittedTitles = new String[0];
+                heights = new float[0];
+            }
             invalidate();
         }
 
@@ -331,7 +431,15 @@ public final class ToastOverlayBridge {
                 measuredTextSize = data.textSize;
                 measuredContentWidth = measuredWidth;
             }
-            float[] heights = new float[data.cards.length];
+            if (fittedTitles.length != data.cards.length
+                    || fittedTitleSize != data.titleSize
+                    || fittedTitleWidth != contentWidth) {
+                titleInputs = new String[data.cards.length];
+                fittedTitles = new String[data.cards.length];
+                fittedTitleSize = data.titleSize;
+                fittedTitleWidth = contentWidth;
+            }
+            if (heights.length != data.cards.length) heights = new float[data.cards.length];
             for (int i = 0; i < data.cards.length; i++) {
                 String message = data.cards[i].message;
                 if (measuredLayouts[i] == null || !message.equals(measuredMessages[i])) {
@@ -342,6 +450,12 @@ public final class ToastOverlayBridge {
                 }
                 heights[i] = Math.max(minimum,
                         messageTop + measuredLayouts[i].getHeight() + verticalInset);
+                String titleText = data.cards[i].title;
+                if (fittedTitles[i] == null || !titleText.equals(titleInputs[i])) {
+                    titleInputs[i] = titleText;
+                    fittedTitles[i] = TextUtils.ellipsize(titleText, title, contentWidth,
+                            TextUtils.TruncateAt.END).toString();
+                }
             }
             fitHeights(heights, Math.max(1, safeHeight - margin * 2 - gap * (heights.length - 1)));
             float total = gap * (heights.length - 1);
@@ -358,17 +472,17 @@ public final class ToastOverlayBridge {
             for (int i = 0; i < data.cards.length; i++) {
                 Card card = data.cards[i];
                 float height = Math.round(heights[i]);
-                int layer = canvas.saveLayerAlpha(x, y, x + cardWidth, y + height,
-                        Math.max(0, Math.min(255, Math.round(card.alpha * 255))));
+                int opacity = Math.max(0, Math.min(255, Math.round(card.alpha * 255)));
+                if (opacity == 0) { y += height + gap; continue; }
+                int layer = opacity == 255 ? -1
+                        : canvas.saveLayerAlpha(x, y, x + cardWidth, y + height, opacity);
                 surface.setColor(data.background);
                 canvas.drawRoundRect(x, y, x + cardWidth, y + height, radius, radius, surface);
                 surface.setColor(card.accent);
                 canvas.drawRect(x, y + radius, x + data.accentWidth,
                         y + height - radius, surface);
                 title.setColor(data.titleColor);
-                CharSequence fitted = TextUtils.ellipsize(card.title, title, contentWidth,
-                        TextUtils.TruncateAt.END);
-                canvas.drawText(fitted.toString(), x + inset,
+                canvas.drawText(fittedTitles[i], x + inset,
                         y + verticalInset - title.getFontMetrics().ascent, title);
                 body.setColor(data.textColor);
                 int clip = canvas.save();
@@ -377,7 +491,7 @@ public final class ToastOverlayBridge {
                 canvas.translate(x + inset, y + messageTop);
                 measuredLayouts[i].draw(canvas);
                 canvas.restoreToCount(clip);
-                canvas.restoreToCount(layer);
+                if (layer != -1) canvas.restoreToCount(layer);
                 y += height + gap;
             }
         }

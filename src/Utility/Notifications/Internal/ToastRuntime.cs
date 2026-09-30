@@ -72,6 +72,14 @@ namespace Utility.Notifications.Internal
                     return;
             }
 
+            if (
+                _active.Count == 0
+                && (_waiting.Count == 0 || _theme.MaximumVisible == 0)
+                && !_commands.HasPending
+                && !_uguiFallbackPending
+            )
+                return;
+
             ToastTheme style = _theme;
             ToastLayout layout = default;
             _commands.RunExclusive(commands =>

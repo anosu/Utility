@@ -11,7 +11,7 @@ namespace Utility.Tests.Notifications
             var assembly = typeof(AndroidToastRenderer).Assembly;
             Assert.Equal("dex\n", ReadPrefix("Utility.Toast.classes.dex", 4));
             Assert.Equal("\u007fELF", ReadPrefix("Utility.Toast.arm64.so", 4));
-            Assert.Equal("\u007fELF", ReadPrefix("Utility.Toast.arm.so", 4));
+            Assert.Null(assembly.GetManifestResourceStream("Utility.Toast.arm.so"));
 
             string ReadPrefix(string name, int length)
             {

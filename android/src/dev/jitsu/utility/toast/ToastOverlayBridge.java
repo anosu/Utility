@@ -238,6 +238,10 @@ public final class ToastOverlayBridge {
         private final TextPaint body = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final Rect insets = new Rect();
         private Snapshot snapshot;
+        private String[] measuredMessages = new String[0];
+        private StaticLayout[] measuredLayouts = new StaticLayout[0];
+        private int measuredTextSize;
+        private int measuredContentWidth;
 
         Overlay(Activity activity) {
             super(activity);
@@ -253,6 +257,11 @@ public final class ToastOverlayBridge {
             updateViewport();
         }
 
+        @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            super.onLayout(changed, left, top, right, bottom);
+            if (changed) updateViewport();
+        }
+
         @Override public WindowInsets onApplyWindowInsets(WindowInsets windowInsets) {
             WindowInsets result = super.onApplyWindowInsets(windowInsets);
             updateViewport();
@@ -266,12 +275,29 @@ public final class ToastOverlayBridge {
 
         private void updateViewport() {
             WindowInsets windowInsets = getRootWindowInsets();
+            View root = getRootView();
+            int[] rootPosition = new int[2];
+            int[] viewPosition = new int[2];
+            root.getLocationInWindow(rootPosition);
+            getLocationInWindow(viewPosition);
+            int safeLeft = rootPosition[0];
+            int safeTop = rootPosition[1];
+            int safeRight = safeLeft + root.getWidth();
+            int safeBottom = safeTop + root.getHeight();
             if (windowInsets != null) {
-                insets.set(windowInsets.getSystemWindowInsetLeft(),
-                        windowInsets.getSystemWindowInsetTop(),
-                        windowInsets.getSystemWindowInsetRight(),
-                        windowInsets.getSystemWindowInsetBottom());
+                safeLeft += windowInsets.getSystemWindowInsetLeft();
+                safeTop += windowInsets.getSystemWindowInsetTop();
+                safeRight -= windowInsets.getSystemWindowInsetRight();
+                safeBottom -= windowInsets.getSystemWindowInsetBottom();
             }
+            int width = getWidth(), height = getHeight();
+            int left = Math.max(0, Math.min(width, safeLeft - viewPosition[0]));
+            int top = Math.max(0, Math.min(height, safeTop - viewPosition[1]));
+            int right = Math.max(0, Math.min(width - left,
+                    viewPosition[0] + width - safeRight));
+            int bottom = Math.max(0, Math.min(height - top,
+                    viewPosition[1] + height - safeBottom));
+            insets.set(left, top, right, bottom);
             viewport = new int[] { getWidth(), getHeight(), insets.left, insets.top,
                     insets.right, insets.bottom };
             invalidate();
@@ -296,13 +322,26 @@ public final class ToastOverlayBridge {
             float contentWidth = Math.max(1, cardWidth - inset * 2);
             float minimum = data.minimumHeight;
 
-            StaticLayout[] messages = new StaticLayout[data.cards.length];
+            int measuredWidth = Math.max(1, (int) contentWidth);
+            if (measuredLayouts.length != data.cards.length
+                    || measuredTextSize != data.textSize
+                    || measuredContentWidth != measuredWidth) {
+                measuredMessages = new String[data.cards.length];
+                measuredLayouts = new StaticLayout[data.cards.length];
+                measuredTextSize = data.textSize;
+                measuredContentWidth = measuredWidth;
+            }
             float[] heights = new float[data.cards.length];
             for (int i = 0; i < data.cards.length; i++) {
-                messages[i] = StaticLayout.Builder.obtain(data.cards[i].message, 0,
-                        data.cards[i].message.length(), body, Math.max(1, (int) contentWidth))
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).build();
-                heights[i] = Math.max(minimum, messageTop + messages[i].getHeight() + verticalInset);
+                String message = data.cards[i].message;
+                if (measuredLayouts[i] == null || !message.equals(measuredMessages[i])) {
+                    measuredMessages[i] = message;
+                    measuredLayouts[i] = StaticLayout.Builder.obtain(message, 0,
+                            message.length(), body, measuredWidth)
+                            .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).build();
+                }
+                heights[i] = Math.max(minimum,
+                        messageTop + measuredLayouts[i].getHeight() + verticalInset);
             }
             fitHeights(heights, Math.max(1, safeHeight - margin * 2 - gap * (heights.length - 1)));
             float total = gap * (heights.length - 1);
@@ -336,7 +375,7 @@ public final class ToastOverlayBridge {
                 canvas.clipRect(x + inset, y + messageTop, x + cardWidth - inset,
                         y + height - verticalInset);
                 canvas.translate(x + inset, y + messageTop);
-                messages[i].draw(canvas);
+                measuredLayouts[i].draw(canvas);
                 canvas.restoreToCount(clip);
                 canvas.restoreToCount(layer);
                 y += height + gap;

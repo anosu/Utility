@@ -53,6 +53,8 @@ def main() -> None:
         parser.error(f"NDK clang is missing: {compiler}")
 
     OUT.mkdir(parents=True, exist_ok=True)
+    obsolete_arm_library = OUT / "armeabi-v7a" / "libutilitytoast.so"
+    obsolete_arm_library.unlink(missing_ok=True)
     sources = sorted((ROOT / "android" / "src").rglob("*.java"))
     with tempfile.TemporaryDirectory(prefix="utility-toast-") as temporary:
         classes = Path(temporary)
@@ -62,14 +64,12 @@ def main() -> None:
             "--lib", str(android), "--output", str(OUT),
             *(str(path) for path in classes.rglob("*.class")))
 
-    for abi, target in (("arm64-v8a", "aarch64-linux-android26"),
-                        ("armeabi-v7a", "armv7a-linux-androideabi26")):
-        destination = OUT / abi / "libutilitytoast.so"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        run(str(compiler), f"--target={target}", "-shared", "-fPIC", "-O2",
-            "-Wall", "-Wextra", "-Werror",
-            "-fvisibility=hidden", "-Wl,-z,relro,-z,now", "-o", str(destination),
-            str(ROOT / "android" / "native" / "toast_bridge.c"), "-ldl")
+    destination = OUT / "arm64-v8a" / "libutilitytoast.so"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    run(str(compiler), "--target=aarch64-linux-android26", "-shared", "-fPIC", "-O2",
+        "-Wall", "-Wextra", "-Werror",
+        "-fvisibility=hidden", "-Wl,-z,relro,-z,now", "-o", str(destination),
+        str(ROOT / "android" / "native" / "toast_bridge.c"), "-ldl")
     print("Built Android toast DEX and JNI bridges in", OUT)
 
 

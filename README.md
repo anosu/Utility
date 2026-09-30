@@ -20,4 +20,4 @@ Mods reference `shared/Utility/src/Utility/Utility.csproj` through a Git submodu
 
 Build commands are documented in [ModEngineering](https://github.com/anosu/ModEngineering).
 
-Android Toast embeds a prebuilt DEX and ARM JNI bridge in `Utility.dll`; normal Mod builds need no Android SDK. To rebuild those resources after changing `android/`, run `python build_android.py --android-jar <SDK>/platforms/android-35/android.jar --d8-jar <SDK>/build-tools/36.0.0/lib/d8.jar --ndk <SDK>/ndk/<version>`. See [API](docs/API.md) for runtime capabilities and limitations.
+Android Toast embeds a prebuilt DEX and ARM64 JNI bridge in `Utility.dll`; normal Mod builds need no Android SDK. To rebuild those resources after changing `android/`, run `python build_android.py --android-jar <SDK>/platforms/android-35/android.jar --d8-jar <SDK>/build-tools/36.0.0/lib/d8.jar --ndk <SDK>/ndk/<version>`. See [API](docs/API.md) for runtime capabilities and limitations.

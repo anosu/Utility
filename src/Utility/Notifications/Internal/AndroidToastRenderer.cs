@@ -16,15 +16,16 @@ namespace Utility.Notifications.Internal
         private readonly Present _present;
         private readonly Viewport _viewport;
         private readonly Stop _stop;
+        private byte[]? _lastSnapshot;
+        private bool _lastWasEmpty = true;
 
         internal AndroidToastRenderer()
         {
             string resource = RuntimeInformation.ProcessArchitecture switch
             {
                 Architecture.Arm64 => "Utility.Toast.arm64.so",
-                Architecture.Arm => "Utility.Toast.arm.so",
                 _ => throw new PlatformNotSupportedException(
-                    "Android toast bridge requires an ARM runtime."
+                    "Android toast bridge requires an ARM64 runtime."
                 ),
             };
             _library = NativeLibrary.Load(ExtractLibrary(resource));
@@ -40,13 +41,15 @@ namespace Utility.Notifications.Internal
                 GCHandle handle = GCHandle.Alloc(dex, GCHandleType.Pinned);
                 try
                 {
-                    if (
-                        start(IntPtr.Zero, handle.AddrOfPinnedObject(), dex.Length) == 0
-                        && start(ReadUnityJavaVm(), handle.AddrOfPinnedObject(), dex.Length) == 0
-                    )
-                        throw new InvalidOperationException(
-                            "Android toast bridge could not start."
-                        );
+                    int result = start(IntPtr.Zero, handle.AddrOfPinnedObject(), dex.Length);
+                    if (result == -1)
+                    {
+                        IntPtr javaVm = ReadUnityJavaVm();
+                        if (javaVm != IntPtr.Zero)
+                            result = start(javaVm, handle.AddrOfPinnedObject(), dex.Length);
+                    }
+                    if (result != 1)
+                        throw new AndroidToastStartupException(result);
                 }
                 finally
                 {
@@ -95,12 +98,18 @@ namespace Utility.Notifications.Internal
             ToastLayout layout
         )
         {
+            if (active.Count == 0 && _lastWasEmpty)
+                return;
             byte[] bytes = CreateSnapshot(active, style, layout);
+            if (_lastSnapshot != null && bytes.AsSpan().SequenceEqual(_lastSnapshot))
+                return;
             GCHandle handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
             try
             {
                 if (_present(handle.AddrOfPinnedObject(), bytes.Length) == 0)
                     throw new InvalidOperationException("Android toast view rejected a frame.");
+                _lastSnapshot = bytes;
+                _lastWasEmpty = active.Count == 0;
             }
             finally
             {
@@ -164,7 +173,19 @@ namespace Utility.Notifications.Internal
         {
             try
             {
-                Type? type = typeof(GameObject).Assembly.GetType("UnityEngine.AndroidJNI");
+                Type? type = Type.GetType(
+                    "UnityEngine.AndroidJNI, UnityEngine.AndroidJNIModule",
+                    throwOnError: false
+                );
+                if (type == null)
+                {
+                    foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        type = assembly.GetType("UnityEngine.AndroidJNI", throwOnError: false);
+                        if (type != null)
+                            break;
+                    }
+                }
                 MethodInfo? method = type?.GetMethod(
                     "GetJavaVM",
                     BindingFlags.Public | BindingFlags.Static
@@ -229,5 +250,27 @@ namespace Utility.Notifications.Internal
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void Stop();
+    }
+
+    internal sealed class AndroidToastStartupException : InvalidOperationException
+    {
+        internal AndroidToastStartupException(int status)
+            : base($"Android toast bridge could not start: {Describe(status)} (stage {status}).") =>
+            Status = status;
+
+        internal int Status { get; }
+        internal bool CanRetry => Status is -1 or -2 or -3;
+
+        private static string Describe(int status) =>
+            status switch
+            {
+                -1 => "Java VM unavailable",
+                -2 => "JNI environment unavailable",
+                -3 => "Unity Activity unavailable",
+                -4 => "Java helper could not be loaded",
+                -5 => "Java View could not be attached",
+                -6 => "embedded DEX is missing",
+                _ => "unexpected native result",
+            };
     }
 }

@@ -8,6 +8,8 @@ namespace Utility.Notifications.Internal
     internal sealed class ToastRuntime
     {
         internal const int Capacity = 50;
+        private const float AndroidRetryInterval = 0.25f;
+        private const float AndroidStartupTimeout = 5f;
 
         private readonly List<ToastItem> _active = new(Capacity);
         private readonly ToastCommandQueue _commands = new();
@@ -21,6 +23,9 @@ namespace Utility.Notifications.Internal
         private ToastLayout _layout;
         private bool _hasLayout;
         private bool _uguiFallbackPending;
+        private bool _androidStartupPending;
+        private float _androidRetryRemaining;
+        private float _androidRetryElapsed;
 
         private ToastRuntime() { }
 
@@ -48,6 +53,24 @@ namespace Utility.Notifications.Internal
         {
             if (_theme == null)
                 return;
+
+            if (_androidStartupPending)
+            {
+                float elapsed = float.IsFinite(deltaTime) ? Math.Max(deltaTime, 0f) : 0f;
+                _androidRetryElapsed += elapsed;
+                _androidRetryRemaining -= elapsed;
+                if (_androidRetryRemaining <= 0f)
+                {
+                    _androidRetryRemaining = AndroidRetryInterval;
+                    TryAttachAndroidView();
+                }
+                if (_androidStartupPending && _androidRetryElapsed >= AndroidStartupTimeout)
+                    _androidStartupPending = false;
+                if (!_androidStartupPending && _frameRenderer == null)
+                    ActivateImgui(_backendError);
+                if (_androidStartupPending)
+                    return;
+            }
 
             ToastTheme style = _theme;
             ToastLayout layout = default;
@@ -128,33 +151,19 @@ namespace Utility.Notifications.Internal
             _backendError = null;
             _hasLayout = false;
             _uguiFallbackPending = false;
+            _androidStartupPending = false;
+            _androidRetryRemaining = 0f;
+            _androidRetryElapsed = 0f;
 
             if (ToastPlatform.IsAndroid)
             {
-                try
-                {
-                    _frameRenderer = new AndroidToastRenderer();
-                    Logging.Write(
-                        LogLevel.Information,
-                        "Toast",
-                        "Using the Android View renderer."
-                    );
+                if (TryAttachAndroidView())
                     return;
-                }
-                catch (Exception exception)
-                {
-                    _backendError = exception;
-                    Logging.WriteRecoverable(
-                        LogLevel.Warning,
-                        "Toast",
-                        "Android View rendering is unavailable; trying IMGUI.",
-                        exception
-                    );
-                }
+                if (_androidStartupPending)
+                    return;
             }
 
-            _imguiRenderer = new ImguiToastRenderer();
-            Logging.Write(LogLevel.Information, "Toast", "Using the IMGUI renderer.");
+            ActivateImgui(_backendError);
         }
 
         internal void DetachRenderer()
@@ -194,6 +203,9 @@ namespace Utility.Notifications.Internal
             _host = null;
             _hasLayout = false;
             _uguiFallbackPending = false;
+            _androidStartupPending = false;
+            _androidRetryRemaining = 0f;
+            _androidRetryElapsed = 0f;
         }
 
         internal void Reset()
@@ -263,6 +275,38 @@ namespace Utility.Notifications.Internal
             )
                 return ToastLayoutProvider.Calculate(style, safeArea, width, height, 1f, true);
             return ToastLayoutProvider.Calculate(style);
+        }
+
+        private bool TryAttachAndroidView()
+        {
+            try
+            {
+                _frameRenderer = new AndroidToastRenderer();
+                _backendError = null;
+                _androidStartupPending = false;
+                Logging.Write(LogLevel.Information, "Toast", "Using the Android View renderer.");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                _backendError = exception;
+                _androidStartupPending =
+                    exception is AndroidToastStartupException startup && startup.CanRetry;
+                return false;
+            }
+        }
+
+        private void ActivateImgui(Exception? androidError)
+        {
+            if (androidError != null)
+                Logging.WriteRecoverable(
+                    LogLevel.Warning,
+                    "Toast",
+                    "Android View rendering is unavailable; trying IMGUI.",
+                    androidError
+                );
+            _imguiRenderer = new ImguiToastRenderer();
+            Logging.Write(LogLevel.Information, "Toast", "Using the IMGUI renderer.");
         }
 
         private void DisableAndroidView(Exception exception)

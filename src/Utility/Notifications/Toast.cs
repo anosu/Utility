@@ -60,7 +60,9 @@ namespace Utility.Notifications
                 Logging.Write(
                     LogLevel.Information,
                     "Toast",
-                    $"Toast initialized with the {Renderer} renderer."
+                    Renderer == ToastRendererKind.None
+                        ? "Toast initialized; waiting for the Android View renderer."
+                        : $"Toast initialized with the {Renderer} renderer."
                 );
             }
             catch

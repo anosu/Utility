@@ -118,13 +118,14 @@ static jclass load_helper(JNIEnv *env, jobject current_activity, const uint8_t *
 }
 
 __attribute__((visibility("default"))) int toast_start(void *java_vm, const uint8_t *dex, int length) {
-    if (!dex || length <= 0) return 0;
+    if (!dex || length <= 0) return -6;
     if (!vm) vm = java_vm ? (JavaVM *)java_vm : find_vm();
+    if (!vm) return -1;
     int attached;
     JNIEnv *env = environment(&attached);
-    if (!env) return 0;
+    if (!env) return -2;
     jobject current_activity = activity(env);
-    if (!current_activity) { release_environment(attached); return 0; }
+    if (!current_activity) { release_environment(attached); return -3; }
     if (!helper) {
         jclass local = load_helper(env, current_activity, dex, length);
         if (local) {
@@ -132,13 +133,19 @@ __attribute__((visibility("default"))) int toast_start(void *java_vm, const uint
             (*env)->DeleteLocalRef(env, local);
         }
     }
+    if (!helper) {
+        clear_exception(env);
+        (*env)->DeleteLocalRef(env, current_activity);
+        release_environment(attached);
+        return -4;
+    }
     jmethodID start = helper ? (*env)->GetStaticMethodID(env, helper, "start", "(Landroid/app/Activity;)V") : NULL;
     if (start) (*env)->CallStaticVoidMethod(env, helper, start, current_activity);
     int failed = clear_exception(env);
-    int ok = start && !failed;
+    int result = start && !failed ? 1 : -5;
     (*env)->DeleteLocalRef(env, current_activity);
     release_environment(attached);
-    return ok;
+    return result;
 }
 
 __attribute__((visibility("default"))) int toast_present(const uint8_t *data, int length) {

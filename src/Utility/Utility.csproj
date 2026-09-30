@@ -48,9 +48,5 @@
             Include="$(ModRepositoryRoot)android/build/arm64-v8a/libutilitytoast.so"
             LogicalName="Utility.Toast.arm64.so"
         />
-        <EmbeddedResource
-            Include="$(ModRepositoryRoot)android/build/armeabi-v7a/libutilitytoast.so"
-            LogicalName="Utility.Toast.arm.so"
-        />
     </ItemGroup>
 </Project>
